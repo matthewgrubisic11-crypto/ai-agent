@@ -19,7 +19,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.lower()
 
     # Optional: handle time directly
-  if "time" in user_message:
+    if "time" in user_message:
     now = datetime.now().strftime("%H:%M")
     await update.message.reply_text(f"The current time is {now}")
     return
