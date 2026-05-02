@@ -1,97 +1,144 @@
 import os
+import logging
 from datetime import datetime
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 
 # =========================
-# 🔑 SETUP
+# 🔑 CONFIG
 # =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
+    raise ValueError("Missing API keys")
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# 🧠 Memory per user
+# =========================
+# 🧾 LOGGING
+# =========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# =========================
+# 🧠 MEMORY CONFIG
+# =========================
+MAX_MEMORY = 15
 user_memory = {}
 
+SYSTEM_PROMPT = {
+    "role": "system",
+    "content": (
+        "You are a smart, practical AI assistant. "
+        "Be clear, helpful, and concise. "
+        "Avoid repeating yourself. Stay conversational."
+    )
+}
+
 # =========================
-# 🤖 MESSAGE HANDLER
+# 🧠 MEMORY HELPERS
+# =========================
+def get_memory(user_id):
+    if user_id not in user_memory:
+        user_memory[user_id] = [SYSTEM_PROMPT]
+    return user_memory[user_id]
+
+def trim_memory(memory):
+    if len(memory) > MAX_MEMORY:
+        return memory[:1] + memory[-(MAX_MEMORY - 1):]
+    return memory
+
+# =========================
+# ⚡ REAL-TIME HANDLERS
+# =========================
+def handle_realtime(message):
+    text = message.lower()
+
+    if "time" in text:
+        return f"The current time is {datetime.now().strftime('%H:%M')}"
+
+    return None
+
+# =========================
+# 🤖 MAIN HANDLER
 # =========================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.chat_id
-    user_message = update.message.text
-
-    # -------------------------
-    # 🧠 Create memory if new
-    # -------------------------
-    if user_id not in user_memory:
-        user_memory[user_id] = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a smart, practical AI assistant. "
-                    "Be clear, helpful, and direct. "
-                    "Help the user with ideas, planning, learning, and real-world tasks. "
-                    "Avoid generic disclaimers. Be useful."
-                )
-            }
-        ]
-
-    # -------------------------
-    # ⚡ REAL-TIME SHORTCUTS
-    # -------------------------
-    if "time" in user_message.lower():
-        now = datetime.now().strftime("%H:%M")
-        await update.message.reply_text(f"The current time is {now}")
+    if not update.message or not update.message.text:
         return
 
+    user_id = update.message.chat_id
+    user_message = update.message.text.strip()
+
+    # typing indicator (feels faster)
+    await context.bot.send_chat_action(chat_id=user_id, action=ChatAction.TYPING)
+
     # -------------------------
-    # 💬 Add user message
+    # ⚡ REAL-TIME SHORTCUT
     # -------------------------
-    user_memory[user_id].append({"role": "user", "content": user_message})
+    realtime = handle_realtime(user_message)
+    if realtime:
+        await update.message.reply_text(realtime)
+        return
+
+    memory = get_memory(user_id)
+
+    # -------------------------
+    # 💬 ADD USER MESSAGE
+    # -------------------------
+    memory.append({"role": "user", "content": user_message})
 
     try:
         # -------------------------
-        # 🤖 AI RESPONSE
+        # 🤖 AI CALL
         # -------------------------
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=user_memory[user_id]
+            messages=memory,
+            temperature=0.7,
         )
 
-        reply = response.choices[0].message.content
-
-        # Save reply to memory
-        user_memory[user_id].append({"role": "assistant", "content": reply})
+        reply = response.choices[0].message.content.strip()
 
         # -------------------------
-        # 🧠 MEMORY CONTROL (IMPORTANT)
-        # Prevent memory getting too big
+        # 🧹 CLEAN BAD OUTPUT
         # -------------------------
-        if len(user_memory[user_id]) > 20:
-            user_memory[user_id] = (
-                user_memory[user_id][:1] +  # keep system prompt
-                user_memory[user_id][-19:]  # keep recent messages
-            )
+        if not reply:
+            return
+
+        if reply.lower().startswith("hello! how can i assist"):
+            return
+
+        # avoid duplicate last reply
+        if len(memory) > 1 and memory[-1]["content"] == reply:
+            return
+
+        # -------------------------
+        # 🧠 SAVE MEMORY
+        # -------------------------
+        memory.append({"role": "assistant", "content": reply})
+        user_memory[user_id] = trim_memory(memory)
+
+        # -------------------------
+        # 📤 SEND
+        # -------------------------
+        await update.message.reply_text(reply)
 
     except Exception as e:
-        reply = f"Error: {str(e)}"
-
-    # -------------------------
-    # 📤 SEND REPLY
-    # -------------------------
-    await update.message.reply_text(reply)
+        logger.error(f"Error: {e}")
+        await update.message.reply_text("Something went wrong. Try again.")
 
 # =========================
-# 🚀 RUN BOT
+# 🚀 RUN
 # =========================
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Bot is running...")
+    logger.info("Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
