@@ -1,5 +1,6 @@
 import os
 import logging
+import sqlite3
 from datetime import datetime
 from telegram import Update
 from telegram.constants import ChatAction
@@ -7,13 +8,10 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 from openai import OpenAI
 
 # =========================
-# 🔑 CONFIG
+# 🔑 KEYS
 # =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
-    raise ValueError("Missing API keys")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -24,43 +22,37 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # =========================
-# 🧠 MEMORY CONFIG
+# 💾 DATABASE (PERMANENT MEMORY)
 # =========================
-MAX_MEMORY = 15
-user_memory = {}
+conn = sqlite3.connect("memory.db", check_same_thread=False)
+cursor = conn.cursor()
 
-SYSTEM_PROMPT = {
-    "role": "system",
-    "content": (
-        "You are a smart, practical AI assistant. "
-        "Be clear, helpful, and concise. "
-        "Avoid repeating yourself. Stay conversational."
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS memory (
+    user_id TEXT,
+    role TEXT,
+    content TEXT
+)
+""")
+conn.commit()
+
+# =========================
+# 🧠 MEMORY FUNCTIONS
+# =========================
+def save_message(user_id, role, content):
+    cursor.execute(
+        "INSERT INTO memory (user_id, role, content) VALUES (?, ?, ?)",
+        (str(user_id), role, content)
     )
-}
+    conn.commit()
 
-# =========================
-# 🧠 MEMORY HELPERS
-# =========================
-def get_memory(user_id):
-    if user_id not in user_memory:
-        user_memory[user_id] = [SYSTEM_PROMPT]
-    return user_memory[user_id]
-
-def trim_memory(memory):
-    if len(memory) > MAX_MEMORY:
-        return memory[:1] + memory[-(MAX_MEMORY - 1):]
-    return memory
-
-# =========================
-# ⚡ REAL-TIME HANDLERS
-# =========================
-def handle_realtime(message):
-    text = message.lower()
-
-    if "time" in text:
-        return f"The current time is {datetime.now().strftime('%H:%M')}"
-
-    return None
+def load_memory(user_id):
+    cursor.execute(
+        "SELECT role, content FROM memory WHERE user_id=? ORDER BY rowid DESC LIMIT 10",
+        (str(user_id),)
+    )
+    rows = cursor.fetchall()
+    return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
 # =========================
 # 🤖 MAIN HANDLER
@@ -72,58 +64,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.chat_id
     user_message = update.message.text.strip()
 
-    # typing indicator (feels faster)
+    # typing indicator
     await context.bot.send_chat_action(chat_id=user_id, action=ChatAction.TYPING)
 
-    # -------------------------
-    # ⚡ REAL-TIME SHORTCUT
-    # -------------------------
-    realtime = handle_realtime(user_message)
-    if realtime:
-        await update.message.reply_text(realtime)
+    # ⚡ real-time time
+    if "time" in user_message.lower():
+        now = datetime.now().strftime("%H:%M")
+        await update.message.reply_text(f"The current time is {now}")
         return
 
-    memory = get_memory(user_id)
+    # 🧠 load memory
+    memory = load_memory(user_id)
 
-    # -------------------------
-    # 💬 ADD USER MESSAGE
-    # -------------------------
-    memory.append({"role": "user", "content": user_message})
+    # add system prompt
+    memory.insert(0, {
+        "role": "system",
+        "content": "You are a smart, helpful AI assistant. Be clear and conversational."
+    })
+
+    # save user message
+    save_message(user_id, "user", user_message)
 
     try:
-        # -------------------------
-        # 🤖 AI CALL
-        # -------------------------
+        # 🤖 AI call
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=memory,
-            temperature=0.7,
+            temperature=0.7
         )
 
         reply = response.choices[0].message.content.strip()
 
-        # -------------------------
-        # 🧹 CLEAN BAD OUTPUT
-        # -------------------------
         if not reply:
             return
 
-        if reply.lower().startswith("hello! how can i assist"):
-            return
+        # save AI reply
+        save_message(user_id, "assistant", reply)
 
-        # avoid duplicate last reply
-        if len(memory) > 1 and memory[-1]["content"] == reply:
-            return
-
-        # -------------------------
-        # 🧠 SAVE MEMORY
-        # -------------------------
-        memory.append({"role": "assistant", "content": reply})
-        user_memory[user_id] = trim_memory(memory)
-
-        # -------------------------
-        # 📤 SEND
-        # -------------------------
+        # send reply
         await update.message.reply_text(reply)
 
     except Exception as e:
@@ -131,11 +109,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Something went wrong. Try again.")
 
 # =========================
-# 🚀 RUN
+# 🚀 RUN BOT
 # =========================
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot is running...")
