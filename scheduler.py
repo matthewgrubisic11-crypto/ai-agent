@@ -24,6 +24,10 @@ async def _fire(bot, job: dict) -> None:
     try:
         prompt = f"[SCHEDULED TASK] {job['prompt']}"
         reply = await brain.run_agent(chat_id, chat_id, prompt)
+        if str(chat_id).startswith("web"):
+            # Web chats have no push channel; run_agent already saved the
+            # exchange to history, which the web UI polls.
+            return
         for i in range(0, len(reply), 4000):
             await bot.send_message(chat_id=chat_id, text=reply[i:i + 4000])
     except Exception:
