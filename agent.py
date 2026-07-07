@@ -1,122 +1,100 @@
-import os
+"""Entry point: Telegram interface for the Claude-powered agentic assistant.
+
+Run with: python agent.py
+Requires env vars: TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY
+"""
+
+import asyncio
 import logging
-import sqlite3
-from datetime import datetime
+import os
+
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
-from openai import OpenAI
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
-# =========================
-# 🔑 KEYS
-# =========================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+load_dotenv()
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+import brain  # noqa: E402  (imports the Anthropic client, needs env loaded first)
+import scheduler  # noqa: E402
 
-# =========================
-# 🧾 LOGGING
-# =========================
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# =========================
-# 💾 DATABASE (PERMANENT MEMORY)
-# =========================
-conn = sqlite3.connect("memory.db", check_same_thread=False)
-cursor = conn.cursor()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS memory (
-    user_id TEXT,
-    role TEXT,
-    content TEXT
+WELCOME = (
+    "Hey — I'm your personal agent, powered by Claude.\n\n"
+    "I can:\n"
+    "• Answer anything, searching the web when freshness matters\n"
+    "• Remember things about you permanently (just tell me)\n"
+    "• Run tasks on a schedule — try: \"every morning at 8am, send me the top AI news\"\n\n"
+    "Just talk to me normally."
 )
-""")
-conn.commit()
 
-# =========================
-# 🧠 MEMORY FUNCTIONS
-# =========================
-def save_message(user_id, role, content):
-    cursor.execute(
-        "INSERT INTO memory (user_id, role, content) VALUES (?, ?, ?)",
-        (str(user_id), role, content)
-    )
-    conn.commit()
 
-def load_memory(user_id):
-    cursor.execute(
-        "SELECT role, content FROM memory WHERE user_id=? ORDER BY rowid DESC LIMIT 10",
-        (str(user_id),)
-    )
-    rows = cursor.fetchall()
-    return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(WELCOME)
 
-# =========================
-# 🤖 MAIN HANDLER
-# =========================
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    user_id = update.message.chat_id
-    user_message = update.message.text.strip()
+    chat_id = update.message.chat_id
+    user_text = update.message.text.strip()
 
-    # typing indicator
-    await context.bot.send_chat_action(chat_id=user_id, action=ChatAction.TYPING)
-
-    # ⚡ real-time time
-    if "time" in user_message.lower():
-        now = datetime.now().strftime("%H:%M")
-        await update.message.reply_text(f"The current time is {now}")
-        return
-
-    # 🧠 load memory
-    memory = load_memory(user_id)
-
-    # add system prompt
-    memory.insert(0, {
-        "role": "system",
-        "content": "You are a smart, helpful AI assistant. Be clear and conversational."
-    })
-
-    # save user message
-    save_message(user_id, "user", user_message)
-
+    typing = asyncio.create_task(_keep_typing(context, chat_id))
     try:
-        # 🤖 AI call
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=memory,
-            temperature=0.7
-        )
+        reply = await brain.run_agent(chat_id, chat_id, user_text)
+    except Exception:
+        logger.exception("Agent run failed")
+        reply = "Something went wrong on my end. Try again in a moment."
+    finally:
+        typing.cancel()
 
-        reply = response.choices[0].message.content.strip()
+    # Telegram caps messages at 4096 chars — chunk long replies.
+    for i in range(0, len(reply), 4000):
+        await update.message.reply_text(reply[i:i + 4000])
 
-        if not reply:
-            return
 
-        # save AI reply
-        save_message(user_id, "assistant", reply)
+async def _keep_typing(context, chat_id):
+    """Keep the typing indicator alive during long agent runs."""
+    try:
+        while True:
+            await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        pass
 
-        # send reply
-        await update.message.reply_text(reply)
 
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        await update.message.reply_text("Something went wrong. Try again.")
+async def _post_init(app):
+    app.create_task(scheduler.scheduler_loop(app))
 
-# =========================
-# 🚀 RUN BOT
-# =========================
+
 def main():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    if not TELEGRAM_TOKEN:
+        raise SystemExit("TELEGRAM_BOT_TOKEN is not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise SystemExit("ANTHROPIC_API_KEY is not set")
+
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(_post_init).build()
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot is running...")
+    logger.info("Agent is running (model: %s)...", brain.MODEL)
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
