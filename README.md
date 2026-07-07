@@ -1,6 +1,6 @@
 # Personal Agentic Assistant
 
-A Telegram-based personal agent powered by Claude (`claude-opus-4-8`). Not just a chatbot — an agent with an agentic loop:
+A personal agent powered by Claude (`claude-opus-4-8`) with two interfaces: **Telegram** and a **web console** (browser chat + live dashboard of the agent's memory and scheduled tasks). Not just a chatbot — an agent with an agentic loop:
 
 - **Tool use** — Claude decides when to act, your code executes, results feed back until the task is done
 - **Web search** — answers with current information (server-side tool, no setup)
@@ -10,11 +10,16 @@ A Telegram-based personal agent powered by Claude (`claude-opus-4-8`). Not just 
 ## Architecture
 
 ```
-agent.py      Telegram interface (entry point)
+agent.py      Entry point: Telegram interface + starts web console & scheduler
+web.py        Web console: browser chat + memory/tasks dashboard (aiohttp)
 brain.py      Claude agent loop + tool definitions/execution
 memory.py     SQLite: conversation history, facts, scheduled jobs
 scheduler.py  Background loop that fires scheduled tasks autonomously
 ```
+
+## Web console
+
+The same process serves a web UI on `PORT` (default 8080) — open `http://localhost:8080` locally, or your app's public URL once deployed. It shows the chat, everything the agent remembers, and its scheduled tasks (with one-click cancel). Set `WEB_PASSWORD` to protect it — **strongly recommended before deploying**, otherwise anyone with the URL can talk to your agent. The web chat and Telegram chat are separate conversations but share the same brain and scheduler.
 
 ## Setup
 
@@ -33,7 +38,7 @@ Or put the two variables in a `.env` file (loaded automatically).
 
 ## Deploy
 
-The `Procfile` (`worker: python agent.py`) works as-is on Railway/Heroku-style platforms. Set the two environment variables in the platform dashboard. Note: SQLite (`memory.db`) is stored on local disk — mount a persistent volume (Railway: Volumes) or memory and scheduled jobs will reset on redeploy.
+The `Procfile` (`web: python agent.py`) works on Railway/Heroku-style platforms; the `web` process type gets a public URL for the console (on Railway, click "Generate Domain" in service Settings → Networking). Set the two environment variables in the platform dashboard. Note: SQLite (`memory.db`) is stored on local disk — mount a persistent volume (Railway: Volumes) or memory and scheduled jobs will reset on redeploy.
 
 ## Configuration
 
@@ -43,6 +48,8 @@ The `Procfile` (`worker: python agent.py`) works as-is on Railway/Heroku-style p
 | `ANTHROPIC_API_KEY` | — (required) | Anthropic API key |
 | `CLAUDE_MODEL` | `claude-opus-4-8` | Model override (e.g. `claude-sonnet-5` for lower cost) |
 | `DB_PATH` | `memory.db` | SQLite database location |
+| `PORT` | `8080` | Web console port (set automatically by most hosts) |
+| `WEB_PASSWORD` | — (open!) | Password for the web console — set this before deploying |
 
 ## Notes
 

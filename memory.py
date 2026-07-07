@@ -62,6 +62,17 @@ def load_recent_messages(user_id, limit: int = 20) -> list[dict]:
     return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
 
+def load_history(user_id, limit: int = 50) -> list[dict]:
+    """Like load_recent_messages but with ids and timestamps, for the web UI."""
+    with _lock:
+        rows = _conn.execute(
+            "SELECT rowid AS id, role, content, created_at FROM memory "
+            "WHERE user_id=? ORDER BY rowid DESC LIMIT ?",
+            (str(user_id), limit),
+        ).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+
 # ---------- long-term facts ----------
 
 def add_fact(user_id, fact: str) -> int:

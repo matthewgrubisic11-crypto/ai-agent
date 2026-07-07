@@ -23,6 +23,7 @@ load_dotenv()
 
 import brain  # noqa: E402  (imports the Anthropic client, needs env loaded first)
 import scheduler  # noqa: E402
+import web  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,6 +81,7 @@ async def _keep_typing(context, chat_id):
 
 async def _post_init(app):
     app.create_task(scheduler.scheduler_loop(app))
+    await web.start_server(int(os.getenv("PORT", "8080")))
 
 
 def main():
