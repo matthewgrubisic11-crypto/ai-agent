@@ -30,23 +30,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--style", default="bold-yellow", choices=list(STYLES),
                         help="caption style")
     parser.add_argument("--llm", default=None, choices=["ollama"],
-                        help="use a local LLM (ollama) to rerank clips")
-    parser.add_argument("--size", default="1080x1920",
-                        help="output WxH (default 1080x1920 for 9:16)")
+                        help="use a local LLM (ollama) for smarter picks + copy")
+    parser.add_argument("--prompt", default=None,
+                        help="ClipAnything: only clip moments matching this text")
+    parser.add_argument("--ratios", default="9:16",
+                        help="comma list of aspect ratios, e.g. 9:16,1:1,16:9")
+    parser.add_argument("--no-meta", action="store_true",
+                        help="skip AI titles/descriptions/hashtags")
     args = parser.parse_args(argv)
 
-    try:
-        out_w, out_h = (int(x) for x in args.size.lower().split("x"))
-    except ValueError:
-        parser.error("--size must look like 1080x1920")
+    ratios = [r.strip() for r in args.ratios.split(",") if r.strip()]
 
     try:
         process(
             args.video, args.out, count=args.count, min_dur=args.min_dur,
             max_dur=args.max_dur, model_size=args.model, language=args.language,
-            caption_style=args.style, use_llm=args.llm, out_w=out_w, out_h=out_h,
+            caption_style=args.style, use_llm=args.llm, prompt=args.prompt,
+            ratios=ratios, gen_meta=not args.no_meta,
         )
-    except (RuntimeError, FileNotFoundError) as exc:
+    except (RuntimeError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0

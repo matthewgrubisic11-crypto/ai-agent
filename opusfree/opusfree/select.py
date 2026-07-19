@@ -161,3 +161,59 @@ def select_clips(transcript: Transcript, count: int = 10, min_dur: float = 15.0,
     ranked = _dedupe(candidates, min_gap=max(min_dur * 0.5, 8.0))
     ranked.sort(key=lambda c: c.score, reverse=True)
     return ranked[:count]
+
+
+def _prompt_relevance(clip: Clip, terms: List[str]) -> float:
+    """Fraction of prompt terms present in the clip, with density bonus."""
+    if not terms:
+        return 0.0
+    text = " " + clip.text.lower() + " "
+    hits = 0
+    total_occurrences = 0
+    for t in terms:
+        occ = text.count(" " + t)
+        if occ:
+            hits += 1
+            total_occurrences += occ
+    coverage = hits / len(terms)
+    density = min(total_occurrences, 6) / 6.0
+    return 0.7 * coverage + 0.3 * density
+
+
+def select_by_prompt(transcript: Transcript, prompt: str, count: int = 10,
+                     min_dur: float = 15.0, max_dur: float = 60.0,
+                     use_llm: str | None = None) -> List[Clip]:
+    """ClipAnything-style: return clips most relevant to a natural-language prompt.
+
+    Lexically matches prompt keywords against the transcript (with a light
+    virality bonus so relevant *and* punchy moments rank first). With
+    ``use_llm='ollama'`` a local model judges semantic relevance instead --
+    closer to Opus's multimodal ClipAnything, still fully local.
+    """
+    candidates = _build_candidates(transcript, min_dur, max_dur, stride=6.0)
+    for c in candidates:
+        _score(c)
+
+    if use_llm == "ollama":
+        from .llm import score_relevance_with_ollama
+        score_relevance_with_ollama(candidates, prompt)
+        for c in candidates:
+            rel = getattr(c, "_relevance", 0.0)
+            c.score = int(max(1, min(100, round(rel * 70 + c.score * 0.3))))
+            if rel > 0:
+                c.reasons = [f"matches prompt: {prompt!r}"] + c.reasons
+    else:
+        terms = [w for w in re.findall(r"[a-zA-Z']+", prompt.lower())
+                 if len(w) > 2]
+        for c in candidates:
+            rel = _prompt_relevance(c, terms)
+            # Relevance dominates; virality is a tiebreaker.
+            c.score = int(max(1, min(100, round(rel * 80 + c.score * 0.2))))
+            if rel > 0:
+                c.reasons = [f"matches prompt: {prompt!r}"] + c.reasons
+
+    ranked = _dedupe(candidates, min_gap=max(min_dur * 0.5, 6.0))
+    # Drop clips with no relevance at all.
+    ranked = [c for c in ranked if c.score > 20]
+    ranked.sort(key=lambda c: c.score, reverse=True)
+    return ranked[:count]

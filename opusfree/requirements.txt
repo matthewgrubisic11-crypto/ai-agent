@@ -9,6 +9,8 @@ opencv-python-headless>=4.8.0
 #   Ubuntu/Debian: sudo apt install ffmpeg
 #   Windows:      https://ffmpeg.org/download.html (add to PATH)
 #
-# Optional (smarter clip selection, still 100% local & free):
+# Optional (smarter clip selection + AI titles/hashtags, still 100% local & free):
 #   install Ollama from https://ollama.com then: ollama pull llama3.1
-#   and run opusfree with --llm ollama
+#   and run opusfree with --llm ollama (or tick the box in the web UI)
+#
+# The web UI (webrun.py) needs no extra packages -- it's pure standard library.

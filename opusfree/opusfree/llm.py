@@ -56,3 +56,49 @@ def rerank_with_ollama(clips: List[Clip], model: str = "llama3.1") -> List[Clip]
     except Exception as exc:  # pragma: no cover - best-effort enhancement
         print(f"  [llm] ollama rerank skipped ({exc}); using heuristic scores")
     return clips
+
+
+_RELEVANCE_PROMPT = """You judge how well each clip matches a user's request.
+Request: "{prompt}"
+For each clip give a relevance 0.0-1.0 (1.0 = perfectly on-topic).
+Return ONLY JSON: a list of {{"i": <index>, "relevance": <float>}}.
+
+Clips:
+"""
+
+
+def score_relevance_with_ollama(clips: List[Clip], prompt: str,
+                                model: str = "llama3.1") -> List[Clip]:
+    """Attach a ``_relevance`` (0-1) to each clip for ClipAnything-style search."""
+    for c in clips:
+        c._relevance = 0.0
+    try:
+        import urllib.request
+
+        listing = "\n".join(
+            f'[{i}] {c.text[:280]}' for i, c in enumerate(clips)
+        )
+        payload = {
+            "model": model,
+            "prompt": _RELEVANCE_PROMPT.format(prompt=prompt) + listing,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1},
+        }
+        req = urllib.request.Request(
+            "http://localhost:11434/api/generate",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            body = json.loads(resp.read().decode())
+        data = json.loads(body.get("response", "[]"))
+        if isinstance(data, dict):
+            data = data.get("clips") or data.get("results") or []
+        for item in data:
+            i = int(item.get("i", -1))
+            if 0 <= i < len(clips):
+                clips[i]._relevance = float(max(0.0, min(1.0, item.get("relevance", 0.0))))
+    except Exception as exc:  # pragma: no cover
+        print(f"  [llm] ollama relevance skipped ({exc}); using keyword matching")
+    return clips
