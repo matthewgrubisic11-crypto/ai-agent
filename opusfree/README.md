@@ -45,6 +45,13 @@ pip install -r requirements.txt
 #    install Ollama from https://ollama.com, then:  ollama pull llama3.1
 ```
 
+## Host it on the web (permanent URL)
+
+Want it always online at a URL instead of only on your machine? See
+**[DEPLOY.md](DEPLOY.md)** — the easiest free option is Hugging Face Spaces
+(permanent URL, wakes on visit). A `Dockerfile` is included so it deploys to
+Spaces, Render, or Fly.io as-is.
+
 ## Use — web app (easiest)
 
 ```bash
