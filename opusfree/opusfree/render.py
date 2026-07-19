@@ -54,25 +54,37 @@ def render_clip(video_path: str, out_path: str, start: float, end: float,
     video_abs = os.path.abspath(video_path)
     out_abs = os.path.abspath(out_path)
 
-    vf = (
+    reframe = (
         f"crop={cw}:{ch}:{cx}:{cy},"
         f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-        f"crop={out_w}:{out_h},"
-        f"subtitles={ass_name}"
+        f"crop={out_w}:{out_h}"
     )
+    # Name the 'filename' option explicitly: ffmpeg 8's filtergraph parser
+    # rejects the positional shorthand `subtitles=file` with "No option name".
+    vf_with_caps = f"{reframe},subtitles=filename={ass_name}"
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", f"{start:.3f}", "-i", video_abs, "-t", f"{duration:.3f}",
-        "-vf", vf,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart",
-        out_abs,
-    ]
-    try:
+    def _run(vf: str) -> None:
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{start:.3f}", "-i", video_abs, "-t", f"{duration:.3f}",
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            out_abs,
+        ]
         subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=tmp_dir)
-    except subprocess.CalledProcessError as exc:  # pragma: no cover
+
+    try:
+        try:
+            _run(vf_with_caps)
+        except subprocess.CalledProcessError as cap_exc:
+            # Safety net: if caption burn-in fails for any reason, still deliver
+            # the reframed clip (without captions) rather than nothing.
+            print("  [render] caption burn-in failed; rendering without captions.")
+            print(f"           ({cap_exc.stderr.strip().splitlines()[-1] if cap_exc.stderr else cap_exc})")
+            _run(reframe)
+    except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffmpeg failed:\n{exc.stderr[-1500:]}") from exc
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
