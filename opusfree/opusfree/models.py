@@ -53,6 +53,7 @@ class Clip:
     score: int = 0            # 0-100 "virality" estimate
     title: str = ""
     reasons: List[str] = field(default_factory=list)
+    breakdown: List[str] = field(default_factory=list)  # "factor: +pts" lines
 
     @property
     def duration(self) -> float:

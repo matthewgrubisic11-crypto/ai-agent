@@ -1,11 +1,21 @@
 """Pick the most clip-worthy moments and assign a 0-100 virality score.
 
 Opus Clip's scorer is a proprietary model trained on private data; we can't
-reproduce that exactly. Instead we use a transparent, tunable heuristic that
-rewards the traits viral shorts actually share: a strong opening hook, a
-self-contained arc, emotional/opinionated language, questions, numbers/lists,
-and a good length. If you have a local LLM via Ollama, ``--llm ollama`` will
-re-rank the shortlist for sharper picks — still fully local and free.
+reproduce that exactly. This is a transparent, deterministic factor system --
+every point a clip earns or loses is named in clip.breakdown, so you can see
+exactly why a clip scored what it did (and tune the weights below).
+
+Two-stage scoring:
+1. Raw factor score: hooks, story/payoff cues, emotion, questions, numbers,
+   completeness, length sweet spot, minus penalties for mid-thought starts
+   and slow patches.
+2. Calibration: raw scores are blended with the clip's rank inside THIS video,
+   so your best picks land ~70-95 with meaningful spread. The number ranks
+   clips against each other; it is not a guarantee of virality (no score is,
+   including Opus's).
+
+With Ollama installed (https://ollama.com) a local LLM re-ranks the shortlist
+for a genuinely smarter read of what's interesting -- see llm.py.
 """
 
 from __future__ import annotations
@@ -15,24 +25,46 @@ from typing import List
 
 from .models import Clip, Transcript, Word
 
-# Words/phrases that tend to open or power a viral short.
+# ---- Lexicons (edit freely; these are the whole "model") -------------------
+
 HOOK_WORDS = {
-    "how", "why", "what", "when", "who", "secret", "never", "always", "everyone",
-    "nobody", "biggest", "worst", "best", "most", "stop", "listen", "imagine",
-    "truth", "mistake", "mistakes", "warning", "crazy", "insane", "shocking",
-    "unbelievable", "hack", "trick", "tip", "tips", "lesson", "story", "problem",
-    "here's", "reason", "actually", "honestly", "wrong", "right", "changed",
-    "million", "billion", "money", "free", "first", "last", "you", "your",
+    "how", "why", "what", "when", "who", "secret", "never", "always",
+    "everyone", "nobody", "biggest", "worst", "best", "most", "stop",
+    "listen", "imagine", "truth", "mistake", "mistakes", "warning", "crazy",
+    "insane", "shocking", "unbelievable", "hack", "trick", "tip", "tips",
+    "lesson", "story", "problem", "here's", "reason", "actually", "honestly",
+    "wrong", "right", "changed", "million", "billion", "money", "free",
+    "first", "last", "you", "your", "nobody's", "everybody",
 }
+
 EMOTION_WORDS = {
     "love", "hate", "amazing", "terrible", "incredible", "awful", "fear",
-    "scared", "excited", "angry", "happy", "sad", "surprised", "wow", "shocked",
-    "hard", "easy", "powerful", "dangerous", "important", "huge", "massive",
+    "scared", "excited", "angry", "happy", "sad", "surprised", "wow",
+    "shocked", "hard", "easy", "powerful", "dangerous", "important", "huge",
+    "massive", "beautiful", "brutal", "obsessed", "passion", "proud", "hurt",
+    "win", "lose", "won", "lost", "failure", "success", "dream", "dreams",
+}
+
+# Story / payoff cues: phrases that signal a narrative arc or an insight
+# being delivered -- the moments interviews are watched for.
+STORY_CUES = (
+    "the reason", "that's when", "that's why", "turns out", "i realized",
+    "i learned", "what i learned", "the key", "the secret", "the truth is",
+    "one day", "at that point", "and then", "the moment", "i remember",
+    "changed my", "changed everything", "taught me", "the difference",
+    "most people", "people don't", "nobody talks", "here's the thing",
+    "let me tell", "true story", "growing up", "when i was",
+)
+
+# Starting a clip on one of these means we're mid-thought -- bad hook.
+BAD_START = {
+    "and", "but", "so", "because", "which", "also", "then", "like", "yeah",
+    "okay", "ok", "um", "uh", "right", "well", "or", "plus", "obviously",
+    "basically", "anyway", "though",
 }
 
 
 def _sentence_starts(words: List[Word]) -> List[int]:
-    """Indices where a new sentence likely begins (good clip cut points)."""
     starts = [0]
     for i in range(1, len(words)):
         prev = words[i - 1].text
@@ -43,7 +75,6 @@ def _sentence_starts(words: List[Word]) -> List[int]:
 
 def _build_candidates(transcript: Transcript, min_dur: float, max_dur: float,
                       stride: float) -> List[Clip]:
-    """Generate overlapping candidate clips aligned to sentence boundaries."""
     words = transcript.words
     if not words:
         return []
@@ -55,7 +86,6 @@ def _build_candidates(transcript: Transcript, min_dur: float, max_dur: float,
         s_time = words[si].start
         if s_time - last_start_time < stride:
             continue
-        # Extend word-by-word until we're inside the target duration window.
         chosen: List[Word] | None = None
         for j in range(si + 1, len(words) + 1):
             dur = words[j - 1].end - s_time
@@ -63,7 +93,6 @@ def _build_candidates(transcript: Transcript, min_dur: float, max_dur: float,
                 continue
             if dur > max_dur:
                 break
-            # Prefer ending on a sentence boundary.
             ends_sentence = words[j - 1].text[-1:] in ".!?"
             chosen = words[si:j]
             if ends_sentence:
@@ -77,68 +106,104 @@ def _build_candidates(transcript: Transcript, min_dur: float, max_dur: float,
 
 
 def _score(clip: Clip) -> None:
-    """Assign clip.score (0-100), a title, and human-readable reasons."""
-    words = [w.text.lower().strip(".,!?;:\"'") for w in clip.words]
-    if not words:
+    """Assign clip.score plus named reasons and a point-by-point breakdown."""
+    tokens = [w.text.lower().strip(".,!?;:\"'") for w in clip.words]
+    if not tokens:
         clip.score = 0
         return
 
     reasons: List[str] = []
-    score = 40.0  # baseline
+    breakdown: List[str] = []
+    score = 38.0
+    breakdown.append("baseline: +38")
 
-    opener = " ".join(words[:6])
-    if any(h in opener.split() for h in HOOK_WORDS):
-        score += 18
-        reasons.append("strong opening hook")
+    def add(pts: float, label: str, reason: str | None = None) -> None:
+        nonlocal score
+        score += pts
+        breakdown.append(f"{label}: {pts:+.0f}")
+        if reason:
+            reasons.append(reason)
 
-    hook_hits = sum(1 for w in words if w in HOOK_WORDS)
-    score += min(hook_hits, 6) * 2.5
-    if hook_hits >= 3:
-        reasons.append("hook-heavy language")
+    text_lower = " ".join(tokens)
+    opener_tokens = tokens[:6]
 
-    emo_hits = sum(1 for w in words if w in EMOTION_WORDS)
-    score += min(emo_hits, 5) * 2.0
-    if emo_hits >= 2:
-        reasons.append("emotional language")
+    # -- Opening hook ---------------------------------------------------------
+    if opener_tokens and opener_tokens[0] in BAD_START:
+        add(-10, "starts mid-thought")
+    if any(t in HOOK_WORDS for t in opener_tokens):
+        add(16, "hook in first 6 words", "strong opening hook")
+    if any(t in ("how", "why", "what") for t in opener_tokens):
+        add(5, "curiosity opener")
 
-    text = clip.text
-    if "?" in text:
-        score += 6
-        reasons.append("poses a question")
-    if re.search(r"\d", text):
-        score += 5
-        reasons.append("uses numbers/specifics")
+    # -- Content signals ------------------------------------------------------
+    hook_hits = sum(1 for t in tokens if t in HOOK_WORDS)
+    if hook_hits:
+        add(min(hook_hits, 6) * 2.0, f"hook words x{min(hook_hits, 6)}")
+        if hook_hits >= 3:
+            reasons.append("hook-heavy language")
 
-    # Length sweet spot for shorts: ~18-45s peaks, tails off outside.
+    emo_hits = sum(1 for t in tokens if t in EMOTION_WORDS)
+    if emo_hits:
+        add(min(emo_hits, 5) * 2.0, f"emotional words x{min(emo_hits, 5)}")
+        if emo_hits >= 2:
+            reasons.append("emotional language")
+
+    story_hits = sum(1 for cue in STORY_CUES if cue in text_lower)
+    if story_hits:
+        add(min(story_hits, 3) * 6.0, f"story/payoff cues x{min(story_hits, 3)}",
+            "story arc / insight payoff")
+
+    raw_text = clip.text
+    if "?" in raw_text:
+        add(6, "poses a question", "poses a question")
+    if re.search(r"\d", raw_text):
+        add(4, "numbers/specifics", "uses numbers/specifics")
+
+    # -- Shape ----------------------------------------------------------------
     d = clip.duration
     if 18 <= d <= 45:
-        score += 8
-        reasons.append("ideal length")
+        add(8, "ideal length 18-45s", "ideal length")
     elif d < 12 or d > 70:
-        score -= 12
+        add(-12, "awkward length")
 
-    # Completeness: starts capitalised-ish and ends on punctuation.
     if clip.words[-1].text[-1:] in ".!?":
-        score += 5
-        reasons.append("self-contained")
+        add(5, "ends on a complete sentence", "self-contained")
 
-    # Penalise very sparse (long pauses) or very dense filler segments.
-    wps = len(words) / max(d, 1e-6)
+    wps = len(tokens) / max(d, 1e-6)
     if wps < 1.0:
-        score -= 8
+        add(-8, "slow / sparse speech")
     elif wps > 4.5:
-        score -= 4
+        add(-4, "rushed speech")
 
     clip.score = int(max(1, min(100, round(score))))
+    clip.breakdown = breakdown
 
-    # Title = first ~8 words, cleaned up.
     raw = " ".join(w.text for w in clip.words[:8])
     clip.title = re.sub(r"\s+", " ", raw).strip().rstrip(".,;:")
     clip.reasons = reasons
 
 
+def _calibrate(ranked: List[Clip]) -> None:
+    """Blend raw scores with in-video rank so top picks read 70-95.
+
+    The *order* never changes -- this only maps the numbers onto a scale
+    where your best-of-video sits high with meaningful spread, instead of
+    everything clustering in the 50s-60s.
+    """
+    n = len(ranked)
+    if n == 0:
+        return
+    for rank, c in enumerate(ranked):
+        pct = 1.0 - (rank / max(n - 1, 1))
+        mapped = 52 + 43 * (pct ** 1.4)
+        c.score = int(max(1, min(97, round(0.4 * c.score + 0.6 * mapped))))
+    # Guarantee strictly non-increasing scores in rank order.
+    for i in range(1, n):
+        if ranked[i].score > ranked[i - 1].score:
+            ranked[i].score = ranked[i - 1].score
+
+
 def _dedupe(clips: List[Clip], min_gap: float) -> List[Clip]:
-    """Drop clips that overlap a higher-scoring one (keep variety)."""
     kept: List[Clip] = []
     for c in sorted(clips, key=lambda x: x.score, reverse=True):
         if all(abs(c.start - k.start) >= min_gap and
@@ -160,11 +225,12 @@ def select_clips(transcript: Transcript, count: int = 10, min_dur: float = 15.0,
 
     ranked = _dedupe(candidates, min_gap=max(min_dur * 0.5, 8.0))
     ranked.sort(key=lambda c: c.score, reverse=True)
-    return ranked[:count]
+    ranked = ranked[:count]
+    _calibrate(ranked)
+    return ranked
 
 
 def _prompt_relevance(clip: Clip, terms: List[str]) -> float:
-    """Fraction of prompt terms present in the clip, with density bonus."""
     if not terms:
         return 0.0
     text = " " + clip.text.lower() + " "
@@ -183,18 +249,17 @@ def _prompt_relevance(clip: Clip, terms: List[str]) -> float:
 def select_by_prompt(transcript: Transcript, prompt: str, count: int = 10,
                      min_dur: float = 15.0, max_dur: float = 60.0,
                      use_llm: str | None = None) -> List[Clip]:
-    """ClipAnything-style: return clips most relevant to a natural-language prompt.
-
-    Lexically matches prompt keywords against the transcript (with a light
-    virality bonus so relevant *and* punchy moments rank first). With
-    ``use_llm='ollama'`` a local model judges semantic relevance instead --
-    closer to Opus's multimodal ClipAnything, still fully local.
-    """
+    """ClipAnything-style: clips most relevant to a natural-language prompt."""
     candidates = _build_candidates(transcript, min_dur, max_dur, stride=6.0)
     for c in candidates:
         _score(c)
 
-    if use_llm == "ollama":
+    generic = _is_generic_prompt(prompt)
+    if generic:
+        # "find the viral/best parts" isn't a topic filter -- it's exactly what
+        # the virality scorer already does. Use it directly.
+        pass
+    elif use_llm == "ollama":
         from .llm import score_relevance_with_ollama
         score_relevance_with_ollama(candidates, prompt)
         for c in candidates:
@@ -204,16 +269,34 @@ def select_by_prompt(transcript: Transcript, prompt: str, count: int = 10,
                 c.reasons = [f"matches prompt: {prompt!r}"] + c.reasons
     else:
         terms = [w for w in re.findall(r"[a-zA-Z']+", prompt.lower())
-                 if len(w) > 2]
+                 if len(w) > 2 and w not in _GENERIC_TERMS]
         for c in candidates:
             rel = _prompt_relevance(c, terms)
-            # Relevance dominates; virality is a tiebreaker.
             c.score = int(max(1, min(100, round(rel * 80 + c.score * 0.2))))
             if rel > 0:
                 c.reasons = [f"matches prompt: {prompt!r}"] + c.reasons
 
     ranked = _dedupe(candidates, min_gap=max(min_dur * 0.5, 6.0))
-    # Drop clips with no relevance at all.
-    ranked = [c for c in ranked if c.score > 20]
+    if not generic:
+        ranked = [c for c in ranked if c.score > 20]
     ranked.sort(key=lambda c: c.score, reverse=True)
-    return ranked[:count]
+    ranked = ranked[:count]
+    _calibrate(ranked)
+    return ranked
+
+
+# Prompts like "find the most viral parts" carry no topic terms; treat them as
+# plain virality ranking instead of matching the words "viral"/"best" etc.
+_GENERIC_TERMS = {
+    "find", "make", "give", "pull", "get", "turn", "create", "curate",
+    "most", "best", "top", "good", "great", "viral", "virality", "clip",
+    "clips", "video", "videos", "reel", "reels", "short", "shorts",
+    "moment", "moments", "part", "parts", "entertaining", "interesting",
+    "important", "material", "possible", "possibile", "them", "with", "the",
+    "and", "that", "into", "every", "all",
+}
+
+
+def _is_generic_prompt(prompt: str) -> bool:
+    terms = [w for w in re.findall(r"[a-zA-Z']+", prompt.lower()) if len(w) > 2]
+    return all(t in _GENERIC_TERMS for t in terms) if terms else True

@@ -27,16 +27,23 @@ def main(argv: list[str] | None = None) -> int:
                         help="whisper size: tiny|base|small|medium|large-v3")
     parser.add_argument("--language", default=None,
                         help="force a language code (e.g. en); default auto")
-    parser.add_argument("--style", default="bold-yellow", choices=list(STYLES),
+    parser.add_argument("--style", default="retention", choices=list(STYLES),
                         help="caption style")
     parser.add_argument("--llm", default=None, choices=["ollama"],
-                        help="use a local LLM (ollama) for smarter picks + copy")
+                        help="use a local LLM (ollama) for smarter picks + copy "
+                             "(auto-detected if running)")
     parser.add_argument("--prompt", default=None,
                         help="ClipAnything: only clip moments matching this text")
     parser.add_argument("--ratios", default="9:16",
                         help="comma list of aspect ratios, e.g. 9:16,1:1,16:9")
     parser.add_argument("--no-meta", action="store_true",
                         help="skip AI titles/descriptions/hashtags")
+    parser.add_argument("--no-zooms", action="store_true",
+                        help="disable punch zooms on emphasis moments")
+    parser.add_argument("--no-sfx", action="store_true",
+                        help="disable the synthesized anticipation riser")
+    parser.add_argument("--no-split", action="store_true",
+                        help="disable automatic two-speaker split-screen")
     args = parser.parse_args(argv)
 
     ratios = [r.strip() for r in args.ratios.split(",") if r.strip()]
@@ -47,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
             max_dur=args.max_dur, model_size=args.model, language=args.language,
             caption_style=args.style, use_llm=args.llm, prompt=args.prompt,
             ratios=ratios, gen_meta=not args.no_meta,
+            zooms=not args.no_zooms, sfx=not args.no_sfx,
+            split_screen=not args.no_split,
         )
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

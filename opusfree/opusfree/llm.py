@@ -12,6 +12,19 @@ from typing import List
 
 from .models import Clip
 
+
+def ollama_available(timeout: float = 1.0) -> bool:
+    """True if a local Ollama server is running with at least one model."""
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen("http://localhost:11434/api/tags",
+                                    timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        return bool(data.get("models"))
+    except Exception:
+        return False
+
 _PROMPT = """You rate short-video clips cut from a longer talk/podcast.
 For each clip, give a virality score 0-100 (how likely it grabs attention and
 gets shared on TikTok/Reels/Shorts) and a punchy <=6 word title.
