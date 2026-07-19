@@ -2,7 +2,7 @@
 faster-whisper>=1.0.0
 
 # Auto-reframe: face tracking for the 9:16 crop (headless = no GUI deps)
-opencv-python-headless>=4.8.0
+opencv-python-headless>=4.8.0,<5.0.0
 
 # Note: you ALSO need the ffmpeg + ffprobe binaries on your PATH.
 #   macOS:        brew install ffmpeg

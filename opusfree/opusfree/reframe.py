@@ -16,8 +16,15 @@ def _detect_face_center_x(video_path: str, start: float, end: float,
     except ImportError:
         return src_w / 2.0
 
-    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    face_cascade = cv2.CascadeClassifier(cascade_path)
+    # Some headless/preview builds omit the objdetect module; fall back cleanly.
+    if not hasattr(cv2, "CascadeClassifier") or not hasattr(cv2, "data"):
+        return src_w / 2.0
+
+    try:
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+    except Exception:
+        return src_w / 2.0
     if face_cascade.empty():
         return src_w / 2.0
 
