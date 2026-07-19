@@ -1,0 +1,14 @@
+# Core: local speech-to-text with word timestamps (no API keys)
+faster-whisper>=1.0.0
+
+# Auto-reframe: face tracking for the 9:16 crop (headless = no GUI deps)
+opencv-python-headless>=4.8.0
+
+# Note: you ALSO need the ffmpeg + ffprobe binaries on your PATH.
+#   macOS:        brew install ffmpeg
+#   Ubuntu/Debian: sudo apt install ffmpeg
+#   Windows:      https://ffmpeg.org/download.html (add to PATH)
+#
+# Optional (smarter clip selection, still 100% local & free):
+#   install Ollama from https://ollama.com then: ollama pull llama3.1
+#   and run opusfree with --llm ollama
