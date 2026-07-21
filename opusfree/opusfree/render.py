@@ -1,10 +1,13 @@
-"""Probe source video and render final clips with ffmpeg.
+"""Render clips with ffmpeg: tight-cut assembly + reframe + multicam zoom +
+kinetic captions + dialogue enhancement (+ optional sfx / music ducking).
 
-Per clip: trim -> reframe (single crop or two-speaker split-screen) ->
-punch zooms on emphasis moments -> burn in ASS captions -> optional
-synthesized riser/whoosh sound at the zoom moments -> encode MP4.
+The whole edit happens in one filter_complex:
+  trim+concat kept spans (dead-air/filler removed) -> reframe (single crop or
+  two-speaker split) -> simulated multicam zoom pulses centered on the eyes ->
+  burn captions ;  audio: concat -> compress+loudnorm -> (optional) whoosh /
+  ducked music mix.
 
-Requires ffmpeg + ffprobe on PATH (https://ffmpeg.org/download.html).
+Requires ffmpeg + ffprobe on PATH.
 """
 
 from __future__ import annotations
@@ -14,7 +17,11 @@ import os
 import shutil
 import subprocess
 import tempfile
-from typing import List, Optional
+from typing import List, Optional, Tuple
+
+from .audio import DIALOGUE_ENHANCE
+
+FPS = 30
 
 
 def ensure_ffmpeg() -> None:
@@ -22,91 +29,99 @@ def ensure_ffmpeg() -> None:
         if shutil.which(binary) is None:
             raise RuntimeError(
                 f"'{binary}' not found on PATH. Install ffmpeg: "
-                "https://ffmpeg.org/download.html"
-            )
+                "https://ffmpeg.org/download.html")
 
 
 def probe_dimensions(video_path: str) -> tuple[int, int]:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
          "-show_entries", "stream=width,height", "-of", "json", video_path],
-        capture_output=True, text=True, check=True,
-    )
+        capture_output=True, text=True, check=True)
     stream = json.loads(out.stdout)["streams"][0]
     return int(stream["width"]), int(stream["height"])
 
 
-def _zoom_expr(zoom_times: List[float], fps: int = 30,
-               strength: float = 0.08) -> str:
-    """zoompan zoom expression: smooth pulse at each emphasis time.
+def extract_thumbnail(video_path: str, t: float, out_path: str) -> bool:
+    """Grab a single high-quality JPG frame at source time ``t``."""
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", f"{t:.3f}", "-i", video_path,
+             "-frames:v", "1", "-q:v", "2", out_path],
+            check=True, capture_output=True, text=True)
+        return os.path.exists(out_path)
+    except subprocess.CalledProcessError:
+        return False
 
-    Gaussian-shaped pulses (~0.9s wide) written without commas so the
-    expression needs no extra quoting inside the filtergraph.
-    """
+
+def _zoom_expr(zoom_times: List[float], strength: float = 0.12) -> str:
+    """Multicam punch: 100% wide baseline, ~112% pulses at each emphasis time."""
     pulses = "+".join(
-        f"exp(-(on/{fps}-{t:.2f})*(on/{fps}-{t:.2f})/0.18)"
-        for t in zoom_times
-    )
+        f"exp(-(on/{FPS}-{t:.2f})*(on/{FPS}-{t:.2f})/0.16)" for t in zoom_times)
     return f"1+{strength}*({pulses})"
 
 
 def _make_whoosh(path: str, duration: float = 0.7) -> bool:
-    """Synthesize a short rising 'anticipation' sweep with ffmpeg (no assets,
-    no copyright). Returns True on success."""
     expr = "0.22*sin(2*PI*(180+1500*t*t)*t)*sin(PI*t/0.7)"
-    cmd = ["ffmpeg", "-y", "-f", "lavfi",
-           "-i", f"aevalsrc={expr}:d={duration}:s=44100",
-           "-c:a", "pcm_s16le", path]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi",
+             "-i", f"aevalsrc={expr}:d={duration}:s=44100",
+             "-c:a", "pcm_s16le", path],
+            check=True, capture_output=True, text=True)
         return True
     except subprocess.CalledProcessError:
         return False
 
 
-def _build_video_chain(crop_spec: dict, out_w: int, out_h: int,
-                       zoom_times: Optional[List[float]], ass_name: str,
-                       with_captions: bool) -> str:
-    """Build the filter_complex video chain from [0:v] to [vout]."""
-    fps = 30
+def _concat_chain(spans_rel: List[Tuple[float, float]]) -> Tuple[str, str, str]:
+    """Trim+concat kept spans -> ([vc],[ac]) labels. Returns (chain, v, a)."""
+    if len(spans_rel) <= 1:
+        s, e = spans_rel[0] if spans_rel else (0.0, 0.0)
+        chain = (f"[0:v]trim={s:.3f}:{e:.3f},setpts=PTS-STARTPTS[vc];"
+                 f"[0:a]atrim={s:.3f}:{e:.3f},asetpts=PTS-STARTPTS[ac]")
+        return chain, "[vc]", "[ac]"
+    parts, labels = [], []
+    for k, (s, e) in enumerate(spans_rel):
+        parts.append(f"[0:v]trim={s:.3f}:{e:.3f},setpts=PTS-STARTPTS[v{k}]")
+        parts.append(f"[0:a]atrim={s:.3f}:{e:.3f},asetpts=PTS-STARTPTS[a{k}]")
+        labels.append(f"[v{k}][a{k}]")
+    n = len(spans_rel)
+    parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=1[vc][ac]")
+    return ";".join(parts), "[vc]", "[ac]"
+
+
+def _reframe_chain(vin: str, crop_spec: dict, out_w: int, out_h: int) -> str:
     if crop_spec["mode"] == "split":
         (w0, h0, x0, y0), (w1, h1, x1, y1) = crop_spec["crops"]
         half = out_h // 2
-        chain = (
-            f"[0:v]split=2[p0][p1];"
+        return (
+            f"{vin}split=2[p0][p1];"
             f"[p0]crop={w0}:{h0}:{x0}:{y0},"
             f"scale={out_w}:{half}:force_original_aspect_ratio=increase,"
             f"crop={out_w}:{half}[top];"
             f"[p1]crop={w1}:{h1}:{x1}:{y1},"
             f"scale={out_w}:{out_h - half}:force_original_aspect_ratio=increase,"
             f"crop={out_w}:{out_h - half}[bot];"
-            f"[top][bot]vstack=inputs=2[reframed]"
-        )
-    else:
-        cw, ch, cx, cy = crop_spec["crop"]
-        chain = (
-            f"[0:v]crop={cw}:{ch}:{cx}:{cy},"
+            f"[top][bot]vstack=inputs=2[reframed]")
+    cw, ch, cx, cy = crop_spec["crop"]
+    return (f"{vin}crop={cw}:{ch}:{cx}:{cy},"
             f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-            f"crop={out_w}:{out_h}[reframed]"
-        )
-
-    tail = f"fps={fps}"
-    if zoom_times:
-        z = _zoom_expr(zoom_times, fps)
-        tail += (f",zoompan=z={z}"
-                 f":x=(iw-iw/zoom)/2:y=(ih-ih/zoom)/2"
-                 f":d=1:s={out_w}x{out_h}:fps={fps}")
-    if with_captions:
-        tail += f",subtitles=filename={ass_name}"
-    return chain + f";[reframed]{tail}[vout]"
+            f"crop={out_w}:{out_h}[reframed]")
 
 
-def render_clip(video_path: str, out_path: str, start: float, end: float,
-                crop_spec: dict, ass_text: str, out_w: int = 1080,
-                out_h: int = 1920, zoom_times: Optional[List[float]] = None,
-                sfx: bool = False) -> None:
-    """Render one clip. crop_spec comes from reframe.compute_crop_spec."""
-    duration = max(end - start, 0.1)
+def render_clip(video_path: str, out_path: str, clip_start: float,
+                clip_end: float, crop_spec: dict, ass_text: str,
+                out_w: int = 1080, out_h: int = 1920,
+                spans: Optional[List[Tuple[float, float]]] = None,
+                zoom_times: Optional[List[float]] = None, sfx: bool = False,
+                enhance_audio: bool = True,
+                music_path: Optional[str] = None) -> None:
+    """Render one finished clip. ``spans`` are source-absolute keep spans from
+    the EDL (defaults to the whole clip). ``zoom_times`` are OUTPUT-timeline."""
+    duration = max(clip_end - clip_start, 0.1)
+    spans = spans or [(clip_start, clip_end)]
+    spans_rel = [(max(0.0, s - clip_start), max(0.0, e - clip_start))
+                 for s, e in spans]
 
     tmp_dir = tempfile.mkdtemp(prefix="opusfree_")
     ass_name = "captions.ass"
@@ -119,45 +134,78 @@ def render_clip(video_path: str, out_path: str, start: float, end: float,
     whoosh_path = os.path.join(tmp_dir, "whoosh.wav")
     use_sfx = bool(sfx and zoom_times) and _make_whoosh(whoosh_path)
 
-    def _cmd(with_captions: bool) -> list[str]:
-        fc = _build_video_chain(crop_spec, out_w, out_h, zoom_times,
-                                ass_name, with_captions)
-        inputs = ["-ss", f"{start:.3f}", "-i", video_abs,
+    concat, vc, ac = _concat_chain(spans_rel)
+    reframe = _reframe_chain(vc, crop_spec, out_w, out_h)
+
+    def build(with_captions: bool) -> list[str]:
+        vtail = f"[reframed]fps={FPS}"
+        if zoom_times:
+            z = _zoom_expr(zoom_times)
+            vtail += (f",zoompan=z={z}"
+                      f":x=(iw-iw/zoom)/2:y=(ih-ih/zoom)*0.42"
+                      f":d=1:s={out_w}x{out_h}:fps={FPS}")
+        if with_captions:
+            vtail += f",subtitles=filename={ass_name}"
+        vtail += "[vout]"
+
+        # audio: enhance dialogue, then optional sfx / music ducking.
+        # A pad label must be followed directly by a filter (no comma).
+        atail = f"{ac}{DIALOGUE_ENHANCE if enhance_audio else 'anull'}[a0]"
+
+        inputs = ["-ss", f"{clip_start:.3f}", "-i", video_abs,
                   "-t", f"{duration:.3f}"]
-        maps = ["-map", "[vout]"]
+        extra_audio = []
+        mix_labels = ["[a0]"]
+        idx = 1
+
+        if music_path and os.path.exists(music_path):
+            inputs += ["-i", os.path.abspath(music_path)]
+            # loop/trim music to length, duck under dialogue via sidechain
+            extra_audio.append(
+                f"[{idx}:a]aloop=loop=-1:size=2e9,atrim=0:{duration:.3f},"
+                f"asetpts=PTS-STARTPTS,volume=0.35[music]")
+            extra_audio.append(
+                "[music][a0]sidechaincompress=threshold=0.03:ratio=6:"
+                "attack=5:release=250[ducked]")
+            mix_labels = ["[a0]", "[ducked]"]
+            idx += 1
+
         if use_sfx:
-            n = len(zoom_times or [])
-            delays = []
             for k, t in enumerate(zoom_times or []):
-                ms = max(0, int((t - 0.35) * 1000))  # riser leads the zoom peak
+                ms = max(0, int((t - 0.35) * 1000))
                 inputs += ["-i", whoosh_path]
-                delays.append(f"[{k + 1}:a]adelay={ms}|{ms},volume=0.5[w{k}]")
-            wlabels = "".join(f"[w{k}]" for k in range(n))
-            fc += (";" + ";".join(delays) +
-                   f";[0:a]{wlabels}amix=inputs={n + 1}"
+                extra_audio.append(
+                    f"[{idx}:a]adelay={ms}|{ms},volume=0.5[w{k}]")
+                mix_labels.append(f"[w{k}]")
+                idx += 1
+
+        fc = concat + ";" + reframe + ";" + vtail + ";" + atail
+        if len(mix_labels) > 1:
+            fc += ";" + ";".join(extra_audio)
+            fc += (f";{''.join(mix_labels)}amix=inputs={len(mix_labels)}"
                    f":duration=first:normalize=0[aout]")
-            maps += ["-map", "[aout]"]
+            amap = "[aout]"
         else:
-            maps += ["-map", "0:a?"]
+            amap = "[a0]"
+
         return (["ffmpeg", "-y"] + inputs +
-                ["-filter_complex", fc] + maps +
-                ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                 "-c:a", "aac", "-b:a", "128k",
-                 "-movflags", "+faststart", out_abs])
+                ["-filter_complex", fc, "-map", "[vout]", "-map", amap,
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                 "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
+                 out_abs])
 
     try:
         try:
-            subprocess.run(_cmd(True), check=True, capture_output=True,
+            subprocess.run(build(True), check=True, capture_output=True,
                            text=True, cwd=tmp_dir)
         except subprocess.CalledProcessError as cap_exc:
-            # Safety net: deliver the clip without captions rather than fail.
             last = (cap_exc.stderr.strip().splitlines()[-1]
                     if cap_exc.stderr else str(cap_exc))
             print(f"  [render] caption burn-in failed ({last}); "
                   "rendering without captions.")
-            subprocess.run(_cmd(False), check=True, capture_output=True,
+            subprocess.run(build(False), check=True, capture_output=True,
                            text=True, cwd=tmp_dir)
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"ffmpeg failed:\n{exc.stderr[-1500:]}") from exc
+        raise RuntimeError(f"ffmpeg failed:\n{exc.stderr[-1800:]}") from exc
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

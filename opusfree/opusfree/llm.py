@@ -115,3 +115,35 @@ def score_relevance_with_ollama(clips: List[Clip], prompt: str,
     except Exception as exc:  # pragma: no cover
         print(f"  [llm] ollama relevance skipped ({exc}); using keyword matching")
     return clips
+
+
+_GROWTH_PROMPT = """You are a viral short-form video strategist.
+For this clip transcript, return ONLY JSON:
+{{"on_screen_titles": [<3 punchy overlay titles, <=8 words each>],
+  "post_caption": "<hook line>\\n\\n<a controversial or open-ended question>\\n\\n<5 hashtags: 3 niche + 2 broad>"}}
+Transcript: "{text}"
+"""
+
+
+def growth_kit_with_ollama(clip, model: str = "llama3.1") -> dict | None:
+    try:
+        import urllib.request
+
+        payload = {"model": model,
+                   "prompt": _GROWTH_PROMPT.format(text=clip.text[:700]),
+                   "stream": False, "format": "json",
+                   "options": {"temperature": 0.7}}
+        req = urllib.request.Request(
+            "http://localhost:11434/api/generate",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = json.loads(resp.read().decode())
+        data = json.loads(body.get("response", "{}"))
+        titles = data.get("on_screen_titles") or []
+        if titles and data.get("post_caption"):
+            return {"on_screen_titles": [str(t)[:70] for t in titles[:3]],
+                    "post_caption": str(data["post_caption"])[:600]}
+    except Exception:
+        return None
+    return None

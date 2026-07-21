@@ -54,6 +54,10 @@ class Clip:
     title: str = ""
     reasons: List[str] = field(default_factory=list)
     breakdown: List[str] = field(default_factory=list)  # "factor: +pts" lines
+    viral_score: float = 0.0  # 1-10 scale (spec)
+    justification: str = ""   # why this clip should perform
+    subscores: dict = field(default_factory=dict)  # consensus/vuln/utility/arc
+    has_payoff: bool = True
 
     @property
     def duration(self) -> float:

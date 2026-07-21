@@ -40,7 +40,9 @@ def _run_job(job_id: str, video_path: str, opts: dict) -> None:
             use_llm=opts["llm"], prompt=opts["prompt"] or None,
             ratios=opts["ratios"], gen_meta=opts["meta"],
             zooms=opts.get("zooms", True), sfx=opts.get("sfx", True),
-            split_screen=opts.get("split", True), on_progress=progress,
+            split_screen=opts.get("split", True),
+            tighten=opts.get("tighten", True), enhance_audio=opts.get("enhance", True),
+            on_progress=progress,
         )
         job["clips"] = manifest
         job["status"] = "done"
@@ -137,6 +139,8 @@ class Handler(BaseHTTPRequestHandler):
             "zooms": g("zooms", "on") == "on",
             "sfx": g("sfx", "on") == "on",
             "split": g("split", "on") == "on",
+            "tighten": g("tighten", "on") == "on",
+            "enhance": g("enhance", "on") == "on",
             "prompt": g("prompt", "").strip(),
             "ratios": [r for r in g("ratios", "9:16").split(",") if r],
         }
@@ -203,9 +207,11 @@ small.note{color:#6b7488}
   </div>
   <div class="row" style="margin-top:14px">
    <label style="margin:0"><input type="checkbox" id="meta" checked style="width:auto"> AI titles + hashtags</label>
-   <label style="margin:0"><input type="checkbox" id="zooms" checked style="width:auto"> Punch zooms</label>
+   <label style="margin:0"><input type="checkbox" id="tighten" checked style="width:auto"> Surgical cut (remove filler + dead air)</label>
+   <label style="margin:0"><input type="checkbox" id="zooms" checked style="width:auto"> Multicam punch zooms</label>
    <label style="margin:0"><input type="checkbox" id="sfx" checked style="width:auto"> Anticipation sound</label>
-   <label style="margin:0"><input type="checkbox" id="split" checked style="width:auto"> Auto split-screen (2 speakers)</label>
+   <label style="margin:0"><input type="checkbox" id="split" checked style="width:auto"> Auto split-screen</label>
+   <label style="margin:0"><input type="checkbox" id="enhance" checked style="width:auto"> Enhance dialogue audio</label>
    <label style="margin:0"><input type="checkbox" id="llm" style="width:auto"> Use local LLM (Ollama)</label>
   </div>
   <button id="go" disabled>Generate clips</button>
@@ -239,6 +245,8 @@ $('#go').onclick=async()=>{
   fd.append('zooms',$('#zooms').checked?'on':'off');
   fd.append('sfx',$('#sfx').checked?'on':'off');
   fd.append('split',$('#split').checked?'on':'off');
+  fd.append('tighten',$('#tighten').checked?'on':'off');
+  fd.append('enhance',$('#enhance').checked?'on':'off');
   fd.append('llm',$('#llm').checked?'on':'off');
   $('#go').disabled=true;$('#progress').classList.remove('hidden');
   const r=await fetch('/process',{method:'POST',body:fd});
@@ -259,20 +267,25 @@ function render(clips){
     const ratios=Object.entries(c.files||{});
     const first=ratios.length?ratios[0][1]:null;
     const dls=ratios.map(([r,n])=>`<a class="dl" href="/file/${job}/${n}" download>⬇ ${r}</a>`).join('');
+    const dls_extra=c.thumbnail?`<a class="dl" href="/file/${job}/${c.thumbnail}" download>⬇ thumbnail</a>`:'';
     const tags=(c.hashtags||[]).join(' ');
-    const why=(c.breakdown||[]).map(b=>`<span class="chip">${escapeHtml(b)}</span>`).join(' ');
+    const why=(c.score_breakdown||[]).map(b=>`<span class="chip">${escapeHtml(b)}</span>`).join(' ');
     const framing=Object.values(c.framing||{}).includes('split')?'<span class="chip" style="color:#8affc1">split-screen</span>':'';
     const zooms=(c.zoom_moments&&c.zoom_moments.length)?`<span class="chip">${c.zoom_moments.length} punch zoom${c.zoom_moments.length>1?'s':''}</span>`:'';
+    const trimmed=c.trimmed_seconds?`<span class="chip">−${c.trimmed_seconds}s dead air</span>`:'';
+    const kit=c.growth_kit||{};
+    const titles=(kit.on_screen_titles||[]).map(t=>`<div class="muted">• ${escapeHtml(t)}</div>`).join('');
     box.insertAdjacentHTML('beforeend',`<div class="clip">
       ${first?`<video src="/file/${job}/${first}" controls preload="metadata"></video>`:''}
       <div style="flex:1">
-        <div class="row"><span class="score">${c.score}</span><span class="muted">virality • ${Math.round(c.end-c.start)}s</span>${framing}${zooms}</div>
+        <div class="row"><span class="score">${c.viral_score}<span style="font-size:14px;color:#8b93a7">/10</span></span><span class="muted">${c.output_duration||''}s${c.trimmed_seconds?' (cut)':''}</span>${framing}${zooms}${trimmed}</div>
         <b>${escapeHtml(c.title||('Clip '+(idx+1)))}</b>
-        <div class="muted">${escapeHtml(c.description||c.text||'')}</div>
-        <div class="tags">${escapeHtml(tags)}</div>
+        <div class="muted">${escapeHtml(c.score_justification||'')}</div>
+        ${titles?`<details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:12px">Growth kit — titles, caption & hashtags</summary>
+          <div style="margin-top:6px">${titles}<pre style="white-space:pre-wrap;color:#c8d2f0;font-size:12px;margin:8px 0">${escapeHtml(kit.post_caption||'')}</pre></div></details>`:''}
         <details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:12px">Why this score?</summary>
           <div class="row" style="margin-top:6px">${why||'<span class="muted">no breakdown</span>'}</div></details>
-        <div style="margin-top:6px">${dls}</div>
+        <div style="margin-top:6px">${dls} ${dls_extra}</div>
       </div></div>`);
   });
 }

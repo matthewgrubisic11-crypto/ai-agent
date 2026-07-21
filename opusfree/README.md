@@ -6,28 +6,45 @@ short clips — the best moments, scored, auto-reframed, with animated captions 
 ready-to-paste social copy. No subscription, no API keys, nothing uploaded to anyone.
 Runs on your own machine, with a **command line** *and* a **local web app**.
 
-## Feature parity with Opus Clip
+opusfree is an **AI video producer**: it doesn't just cut clips, it edits them —
+surgical filler/dead-air removal, retention captions, simulated multicam, and a
+full growth kit per clip.
 
-| Opus Clip feature | opusfree |
+## What it does
+
+| Capability | opusfree |
 |---|---|
-| Transcription (multi-language) | ✅ Whisper, local, word-level timestamps |
-| Find the best moments | ✅ Sentence-aligned candidates + scorer |
-| Virality Score (1–100) | ✅ Transparent heuristic (hooks, emotion, questions, length) |
-| **ClipAnything** (prompt: "clip every moment about X") | ✅ Keyword/semantic matching (LLM-boosted with `--llm`) |
-| ReframeAnything → 9:16 / 1:1 / 16:9 | ✅ OpenCV speaker-tracking crop, any ratio |
-| Active-speaker centered reframe | ✅ Largest-face tracking |
-| Animated captions | ✅ ASS karaoke, 3 styles |
-| AI titles / descriptions / hashtags | ✅ Local LLM (Ollama) or keyword fallback |
-| Export MP4 | ✅ ffmpeg, 1080p |
-| Web app UI | ✅ `webrun.py` (drag-drop, progress, previews) |
+| Transcription (multi-language) | ✅ Whisper, word-level timestamps |
+| Multi-modal analysis | ✅ Transcript + audio-energy log (spikes → thumbnail, scoring) |
+| Arc-based selection | ✅ Requires hook + payoff; scores consensus-breaking / vulnerability / utility |
+| Virality score | ✅ 1–10 **and** 0–100, with a per-point breakdown you can inspect |
+| **ClipAnything** (prompt) | ✅ Keyword/semantic matching (LLM-boosted with Ollama) |
+| Surgical editing | ✅ Cuts filler ("um", "you know") + dead air >0.2s, restitches tight |
+| Reframe 9:16 / 1:1 / 16:9 | ✅ Face-tracking crop + **auto split-screen** for two speakers |
+| Kinetic captions | ✅ ≤3 words, centered, karaoke + **semantic color** (money→green, danger→red) + 🔥 |
+| Simulated multicam | ✅ Punch-zoom pulses on emphasis, centered on the eyes |
+| Jump-cut masking | ✅ Every cut gets a zoom/B-roll directive |
+| Audio | ✅ Real dialogue normalize+compress; optional music ducking (`--music`) |
+| Growth kit | ✅ 3 on-screen titles, SEO caption (hook / debate Q / 5 hashtags), thumbnail frame |
+| Machine-readable output | ✅ `clips.json` with EDL + visual/audio directives per clip |
+| Web app UI | ✅ `webrun.py` (drag-drop, toggles, previews, growth kit) |
 
-**What can't be identical (and why):** Opus's ClipAnything and Virality models are
-proprietary neural nets trained on private data — this uses transparent, *tunable*
-logic that does the same job, not their exact weights. One-click posting to
-TikTok/YouTube needs their paid platform partnerships, so that stays manual here
-(opusfree writes the caption + hashtags into a `.txt` next to each clip for you to
-paste). And it runs at your machine's speed, not their cloud GPUs. Everything that
-makes the actual clips is here.
+### Honest boundaries (what's a *directive*, not a rendered asset)
+
+Some spec features can't be produced locally for free, so opusfree emits the
+**instruction** for them (in `clips.json`) rather than the finished asset:
+
+- **Stock B-roll overlays** — it generates the B-roll *search queries* per abstract
+  keyword, but doesn't fetch licensed footage (that needs a paid stock library).
+- **Background music** — it picks a mood and writes the ducking directive; supply
+  your own track with `--music song.mp3` and it *will* duck it under dialogue for real.
+- **True emotion/diarization models** — micro-expression and speaker labels are
+  approximated from audio energy + face tracking, not a trained classifier.
+- **Virality model** — transparent, tunable logic, not Opus's proprietary weights.
+- One-click posting to TikTok/YouTube needs paid platform partnerships, so posting
+  stays manual (copy from the generated `.txt`).
+
+Everything else — the cut, reframe, captions, zooms, audio, growth kit — is real.
 
 ## Install
 

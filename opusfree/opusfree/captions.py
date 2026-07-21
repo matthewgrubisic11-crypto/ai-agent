@@ -1,14 +1,14 @@
-"""Retention-focused animated captions as ASS subtitles.
+"""Kinetic, retention-first captions as ASS subtitles.
 
-What keeps viewers watching (short-form best practice):
-- BIG type near the vertical center -- not the bottom, where platform UI sits
-- 1-3 words on screen at a time, so the eye keeps tracking
-- the word being spoken highlights (karaoke), power words get an accent color
-- a quick pop-in scale animation on each phrase
-- heavy outline/shadow so text stays readable over any footage
+Spec-aligned engine:
+- <=3 words per screen (long lines kill vertical retention)
+- centered in the 9:16 safe zone, heavy-stroke high-contrast sans
+- karaoke highlight on the spoken word + pop-in per phrase
+- SEMANTIC color: money/profit -> green, danger/mistake -> red, plus a
+  configurable accent for other power words; optional fire emoji on
+  high-energy words.
 
-Each style below encodes those choices; "retention" is the default and the
-most aggressive about them. Rendering is ffmpeg/libass in render.py.
+Rendering is ffmpeg/libass in render.py.
 """
 
 from __future__ import annotations
@@ -17,50 +17,73 @@ from typing import List
 
 from .models import Word
 
-# Words that deserve the accent color (emphasis) inside captions.
-POWER_WORDS = {
-    "never", "always", "everyone", "nobody", "biggest", "worst", "best",
-    "most", "secret", "truth", "mistake", "money", "free", "stop", "now",
-    "insane", "crazy", "huge", "massive", "important", "powerful", "wrong",
-    "right", "million", "billion", "first", "last", "hate", "love", "fear",
-    "win", "lose", "amazing", "incredible", "changed", "warning",
+# Semantic color map (ASS uses &HBBGGRR, i.e. reversed hex of an #RRGGBB).
+COLOR_GREEN = "55C522"          # money / profit / growth (#22C55E)
+COLOR_RED = "3333EF"            # danger / mistake / loss  (#EF3333)
+
+MONEY_WORDS = {
+    "money", "cash", "profit", "profits", "rich", "wealth", "wealthy",
+    "millionaire", "billionaire", "million", "billion", "dollars", "revenue",
+    "income", "paid", "pay", "salary", "fortune", "roi", "growth", "win",
+    "won", "success", "free",
+}
+DANGER_WORDS = {
+    "danger", "dangerous", "mistake", "mistakes", "wrong", "fail", "failure",
+    "failed", "lose", "lost", "loss", "death", "die", "kill", "worst", "never",
+    "warning", "trap", "broke", "debt", "risk", "hurt", "pain", "scared",
+    "fear", "crash", "hate",
+}
+HIGH_ENERGY = {
+    "insane", "crazy", "unbelievable", "shocking", "wild", "huge", "massive",
+    "incredible", "amazing", "explode", "exploded", "fire", "unreal", "boom",
+    "biggest", "greatest",
+}
+POWER_WORDS = MONEY_WORDS | DANGER_WORDS | HIGH_ENERGY | {
+    "secret", "truth", "everyone", "nobody", "always", "most", "first",
+    "last", "important", "powerful", "changed", "love",
 }
 
-# Colors are ASS &HBBGGRR (no alpha here; alpha added where needed).
 STYLES = {
-    # The default: big, centered, punchy. Modeled on high-retention shorts.
     "retention": {
         "font": "Arial Black", "size_frac": 0.052, "margin_frac": 0.30,
-        "primary": "FFFFFF", "highlight": "00E9FF",   # yellow highlight
-        "accent": "00FF7F",                            # spring green power words
+        "primary": "FFFFFF", "highlight": "00E9FF", "accent": "00E9FF",
         "outline": "000000", "outline_w": 5, "shadow": 2,
-        "uppercase": True, "max_words": 3, "max_dur": 1.6, "pop": True,
+        "uppercase": True, "max_words": 3, "max_dur": 1.5, "pop": True,
+        "emoji": True,
     },
-    # White, cleaner, a bit smaller; still center-ish.
     "clean-white": {
         "font": "Arial", "size_frac": 0.040, "margin_frac": 0.26,
-        "primary": "FFFFFF", "highlight": "00D7FF",
-        "accent": "00D7FF",
+        "primary": "FFFFFF", "highlight": "00D7FF", "accent": "00D7FF",
         "outline": "202020", "outline_w": 3, "shadow": 1,
-        "uppercase": False, "max_words": 4, "max_dur": 2.2, "pop": False,
+        "uppercase": False, "max_words": 3, "max_dur": 2.0, "pop": False,
+        "emoji": False,
     },
-    # Classic bold-yellow karaoke look.
     "bold-yellow": {
-        "font": "Arial Black", "size_frac": 0.044, "margin_frac": 0.22,
-        "primary": "FFFFFF", "highlight": "00F0FF",
-        "accent": "00F0FF",
+        "font": "Arial Black", "size_frac": 0.046, "margin_frac": 0.24,
+        "primary": "FFFFFF", "highlight": "00F0FF", "accent": "00F0FF",
         "outline": "000000", "outline_w": 4, "shadow": 1,
-        "uppercase": False, "max_words": 4, "max_dur": 2.4, "pop": False,
+        "uppercase": True, "max_words": 3, "max_dur": 1.8, "pop": True,
+        "emoji": False,
     },
-    # Green-highlight, huge, all-caps.
     "hormozi": {
         "font": "Arial Black", "size_frac": 0.055, "margin_frac": 0.30,
-        "primary": "FFFFFF", "highlight": "00FF00",
-        "accent": "00FF00",
+        "primary": "FFFFFF", "highlight": "00FF00", "accent": "00FF00",
         "outline": "000000", "outline_w": 6, "shadow": 2,
-        "uppercase": True, "max_words": 3, "max_dur": 1.8, "pop": True,
+        "uppercase": True, "max_words": 3, "max_dur": 1.6, "pop": True,
+        "emoji": True,
     },
 }
+
+
+def word_color(bare: str, style: dict) -> str | None:
+    """Semantic color for a word, or None for default."""
+    if bare in MONEY_WORDS or bare.rstrip("%$kmb").isdigit():
+        return COLOR_GREEN
+    if bare in DANGER_WORDS:
+        return COLOR_RED
+    if bare in POWER_WORDS:
+        return style["accent"]
+    return None
 
 
 def _fmt_ts(t: float) -> str:
@@ -92,9 +115,11 @@ def _chunk_words(words: List[Word], max_words: int, max_dur: float
 
 
 def build_ass(words: List[Word], clip_start: float, video_w: int, video_h: int,
-              style_name: str = "retention") -> str:
-    """Return ASS subtitle text; word times are shifted to clip-relative."""
+              style_name: str = "retention", emoji: bool | None = None) -> str:
+    """Return ASS subtitle text. ``words`` should already be clip-relative if
+    they came from a tightened EDL; otherwise clip_start is subtracted."""
     st = STYLES.get(style_name, STYLES["retention"])
+    use_emoji = st["emoji"] if emoji is None else emoji
     size = max(28, int(video_h * st["size_frac"]))
     margin_v = int(video_h * st["margin_frac"])
 
@@ -110,8 +135,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Cap,{st['font']},{size},&H00{st['primary']},&H00{st['highlight']},&H00{st['outline']},&H80000000,-1,0,0,0,100,100,0,0,1,{st['outline_w']},{st['shadow']},2,40,40,{margin_v},1
 """
 
-    # Pop-in: start slightly small, snap to full size in ~120ms.
-    pop_tag = (r"{\fscx82\fscy82\t(0,120,\fscx100\fscy100)}"
+    pop_tag = (r"{\fscx82\fscy82\t(0,110,\fscx100\fscy100)}"
                if st["pop"] else "")
 
     lines = []
@@ -126,17 +150,16 @@ Style: Cap,{st['font']},{size},&H00{st['primary']},&H00{st['highlight']},&H00{st
             if st["uppercase"]:
                 text = text.upper()
             bare = w.text.lower().strip(".,!?;:\"'")
-            if bare in POWER_WORDS or bare.rstrip("%$").isdigit():
-                # Accent color for power words / numbers, then reset.
-                parts.append(
-                    rf"{{\kf{k_cs}\1c&H{st['accent']}&}}{text}"
-                    rf"{{\1c&H{st['primary']}&}} ")
+            if use_emoji and bare in HIGH_ENERGY:
+                text += " \U0001F525"  # fire
+            col = word_color(bare, st)
+            if col:
+                parts.append(rf"{{\kf{k_cs}\1c&H{col}&}}{text}"
+                             rf"{{\1c&H{st['primary']}&}} ")
             else:
                 parts.append(rf"{{\kf{k_cs}}}{text} ")
-        text_line = "".join(parts).strip()
-        lines.append(
-            f"Dialogue: 0,{_fmt_ts(c_start)},{_fmt_ts(c_end)},Cap,,0,0,0,,{text_line}"
-        )
+        lines.append(f"Dialogue: 0,{_fmt_ts(c_start)},{_fmt_ts(c_end)},"
+                     f"Cap,,0,0,0,,{''.join(parts).strip()}")
 
     return (header + "\n[Events]\n"
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "

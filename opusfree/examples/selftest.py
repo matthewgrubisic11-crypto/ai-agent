@@ -58,6 +58,36 @@ def main() -> None:
     assert meta["title"] and meta["hashtags"]
     print("metadata:", meta["title"][:40], "|", " ".join(meta["hashtags"][:4]))
 
+    # 5b. Surgical EDL: filler + dead-air removal, tightened timeline
+    from opusfree.edl import build_plan
+    ws = []
+    t = 0.0
+    for tok in "here is the um biggest mistake you know that everyone makes".split():
+        ws.append(Word(tok, round(t, 2), round(t + 0.3, 2)))
+        t += 0.35
+    ws.append(Word("really.", 5.0, 5.3))  # a dead-air gap before this word
+    plan = build_plan(ws, 0.0, tighten=True)
+    deleted = [e.word for e in plan.edl if e.action == "delete"]
+    assert "um" in deleted, deleted
+    assert plan.removed > 0.5, plan.removed
+    print(f"EDL: deleted {deleted}, removed {plan.removed}s, {len(plan.spans)} spans")
+
+    # 5c. Directives + growth kit
+    from opusfree.directives import visual_directives, growth_kit, audio_directives
+    vds = visual_directives(plan.words, [1.0], "retention")
+    assert vds and "action" in vds[0] and "caption" in vds[0]
+    kit = growth_kit(clips[0], "00:00:02.00")
+    assert len(kit["on_screen_titles"]) == 3 and kit["post_caption"]
+    ad = audio_directives(clips[0])
+    assert ad["dialogue_ducking_db"] == -4
+    print("directives:", vds[0]["action"], "| titles:", len(kit["on_screen_titles"]),
+          "| music:", ad["track_style"])
+
+    # 5d. Arc scoring produces 1-10 + subscores
+    assert 1 <= clips[0].viral_score <= 10
+    assert set(clips[0].subscores) >= {"consensus_breaking", "high_utility"}
+    print("viral_score:", clips[0].viral_score, "subscores:", clips[0].subscores)
+
     # 6. Multipart parser
     boundary = "X"
     body = (

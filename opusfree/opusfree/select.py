@@ -63,6 +63,41 @@ BAD_START = {
     "basically", "anyway", "though",
 }
 
+# Greetings / intros that must never open a clip (spec negative constraint).
+GREETING_START = {
+    "hi", "hey", "hello", "welcome", "thanks", "thank", "today", "alright",
+    "guys", "everybody", "everyone's", "morning", "afternoon",
+}
+
+# Consensus-breaking: challenges common knowledge.
+CONSENSUS_CUES = (
+    "most people", "everyone thinks", "people think", "nobody talks",
+    "nobody tells", "the truth is", "contrary to", "actually", "myth",
+    "wrong about", "you've been", "they lied", "don't believe", "the opposite",
+    "isn't what", "not what you", "common", "unpopular", "hot take",
+)
+# Emotional vulnerability: raw personal truth.
+VULNERABILITY_CUES = (
+    "i was scared", "i cried", "i failed", "i almost", "i hit rock",
+    "i struggled", "i remember", "i felt", "the hardest", "i lost", "my dad",
+    "my mom", "my father", "my mother", "when i was", "growing up", "i nearly",
+    "broke down", "i couldn't", "honestly", "i'll be honest", "truth be told",
+)
+# High utility: actionable advice.
+UTILITY_CUES = (
+    "you should", "you need to", "the key is", "here's how", "the trick is",
+    "start by", "step one", "the first thing", "what you do is", "all you have",
+    "make sure", "never", "always", "the secret", "do this", "try this",
+    "the best way", "focus on", "stop doing",
+)
+# Payoff / resolution cues near the end (spec requires a definitive payoff).
+PAYOFF_CUES = (
+    "that's why", "that's the", "so the", "the point is", "the lesson",
+    "and that's how", "in the end", "bottom line", "so if you", "that's what",
+    "which is why", "the moral", "remember that", "never forget", "so do",
+    "and that changed", "it's that simple", "that's it", "the difference",
+)
+
 
 def _sentence_starts(words: List[Word]) -> List[int]:
     starts = [0]
@@ -175,6 +210,38 @@ def _score(clip: Clip) -> None:
     elif wps > 4.5:
         add(-4, "rushed speech")
 
+    # -- Narrative-arc sub-scores (spec Step 2 matrix, 0-10 each) ------------
+    n_words = len(clip.words)
+    head = " ".join(tokens[:max(6, n_words // 3)])
+    tail = " ".join(tokens[-(max(6, n_words // 3)):])
+
+    consensus = min(10, 3 + 4 * sum(c in text_lower for c in CONSENSUS_CUES))
+    vulner = min(10, 2 + 4 * sum(c in text_lower for c in VULNERABILITY_CUES))
+    utility = min(10, 2 + 3 * sum(c in text_lower for c in UTILITY_CUES))
+
+    has_hook = (opener_tokens and opener_tokens[0] not in BAD_START
+                and opener_tokens[0] not in GREETING_START
+                and (any(t in HOOK_WORDS for t in opener_tokens) or "?" in head))
+    has_payoff = (any(c in tail for c in PAYOFF_CUES)
+                  or clip.words[-1].text[-1:] in ".!?")
+    arc = (4 if has_hook else 0) + (4 if has_payoff else 0) + (
+        2 if 20 <= d <= 60 else 0)
+
+    clip.subscores = {"consensus_breaking": consensus,
+                      "emotional_vulnerability": vulner,
+                      "high_utility": utility, "narrative_arc": arc}
+    clip.has_payoff = has_payoff
+    if consensus >= 6:
+        add(6, "challenges consensus", "consensus-breaking")
+    if vulner >= 6:
+        add(6, "raw personal truth", "emotional vulnerability")
+    if utility >= 6:
+        add(5, "actionable advice", "high utility")
+    if has_payoff:
+        add(4, "clear payoff", "definitive payoff")
+    else:
+        add(-14, "no clear payoff")
+
     clip.score = int(max(1, min(100, round(score))))
     clip.breakdown = breakdown
 
@@ -201,6 +268,28 @@ def _calibrate(ranked: List[Clip]) -> None:
     for i in range(1, n):
         if ranked[i].score > ranked[i - 1].score:
             ranked[i].score = ranked[i - 1].score
+    for c in ranked:
+        c.viral_score = round(c.score / 10.0, 1)
+        c.justification = _justify(c)
+
+
+def _justify(clip: Clip) -> str:
+    """One-line, spec-style reason this clip should perform."""
+    ss = clip.subscores or {}
+    bits = []
+    if ss.get("consensus_breaking", 0) >= 6:
+        bits.append("challenges what most people believe")
+    if ss.get("emotional_vulnerability", 0) >= 6:
+        bits.append("shares a raw personal moment")
+    if ss.get("high_utility", 0) >= 6:
+        bits.append("delivers immediately usable advice")
+    if clip.has_payoff:
+        bits.append("lands on a clear payoff")
+    else:
+        bits.append("carries momentum from a strong hook")
+    lead = "Strong hook" if clip.reasons and "hook" in " ".join(clip.reasons) \
+        else "Self-contained moment"
+    return f"{lead} that {', and '.join(bits) or 'holds attention'}."
 
 
 def _dedupe(clips: List[Clip], min_gap: float) -> List[Clip]:
@@ -212,12 +301,27 @@ def _dedupe(clips: List[Clip], min_gap: float) -> List[Clip]:
     return kept
 
 
+def _passes_constraints(clip: Clip, strict: bool) -> bool:
+    """Enforce the spec's hard negative constraints on a clip."""
+    toks = [w.text.lower().strip(".,!?;:\"'") for w in clip.words]
+    if not toks:
+        return False
+    if toks[0] in GREETING_START or toks[0] in BAD_START:
+        return False           # never open on a greeting / filler
+    if strict and not clip.has_payoff:
+        return False           # never ship an unresolved clip
+    return True
+
+
 def select_clips(transcript: Transcript, count: int = 10, min_dur: float = 15.0,
-                 max_dur: float = 60.0, use_llm: str | None = None) -> List[Clip]:
+                 max_dur: float = 60.0, use_llm: str | None = None,
+                 strict_arc: bool = True) -> List[Clip]:
     """Return the top ``count`` clips, highest virality score first."""
     candidates = _build_candidates(transcript, min_dur, max_dur, stride=8.0)
     for c in candidates:
         _score(c)
+
+    candidates = [c for c in candidates if _passes_constraints(c, strict_arc)]
 
     if use_llm == "ollama":
         from .llm import rerank_with_ollama
@@ -276,6 +380,7 @@ def select_by_prompt(transcript: Transcript, prompt: str, count: int = 10,
             if rel > 0:
                 c.reasons = [f"matches prompt: {prompt!r}"] + c.reasons
 
+    candidates = [c for c in candidates if _passes_constraints(c, False)]
     ranked = _dedupe(candidates, min_gap=max(min_dur * 0.5, 6.0))
     if not generic:
         ranked = [c for c in ranked if c.score > 20]

@@ -44,6 +44,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="disable the synthesized anticipation riser")
     parser.add_argument("--no-split", action="store_true",
                         help="disable automatic two-speaker split-screen")
+    parser.add_argument("--no-tighten", action="store_true",
+                        help="keep dead air / filler words (no surgical cut)")
+    parser.add_argument("--no-enhance", action="store_true",
+                        help="skip dialogue normalization/compression")
+    parser.add_argument("--music", default=None,
+                        help="path to a music file to duck under dialogue")
     args = parser.parse_args(argv)
 
     ratios = [r.strip() for r in args.ratios.split(",") if r.strip()]
@@ -55,7 +61,8 @@ def main(argv: list[str] | None = None) -> int:
             caption_style=args.style, use_llm=args.llm, prompt=args.prompt,
             ratios=ratios, gen_meta=not args.no_meta,
             zooms=not args.no_zooms, sfx=not args.no_sfx,
-            split_screen=not args.no_split,
+            split_screen=not args.no_split, tighten=not args.no_tighten,
+            enhance_audio=not args.no_enhance, music_path=args.music,
         )
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
