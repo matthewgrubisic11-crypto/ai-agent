@@ -189,15 +189,33 @@ def compute_crop_spec(video_path: str, start: float, end: float, src_w: int,
         return {"mode": "split", "crops": panels}
 
     if clusters and len(clusters[0]) >= 2:
-        keys = _smooth_path(timeline, crop_w, src_w)
         best = clusters[0]
         total = sum(r[2] for r in best) or 1.0
         cx = sum(r[0] * r[2] for r in best) / total
-        spec = {"mode": "single",
-                "crop": _centered_crop(cx, crop_w, src_h, src_w, src_h)}
+        cy = sum(r[1] * r[2] for r in best) / total
+        face_w = sum(r[2] for r in best) / len(best)   # avg face width (px)
+
+        # Frame the HEAD-AND-SHOULDERS, not the whole source. Size the crop so
+        # the head fills a good share of the vertical frame; give headroom by
+        # putting the eyes ~40% from the top (rule of thirds).
+        head_h = face_w * 1.5                       # face -> full head
+        crop_h = head_h / 0.46                       # head ~46% of frame height
+        crop_h = min(crop_h, src_h)                  # can't exceed source
+        crop_h = max(crop_h, src_h * 0.45)           # don't upscale to mush
+        cw = crop_h * target_ratio
+        if cw > src_w:                               # keep aspect if too wide
+            cw, crop_h = src_w, src_w / target_ratio
+        cw, crop_h = int(round(cw)), int(round(crop_h))
+
+        x = max(0, min(int(cx - cw / 2), src_w - cw))
+        y = max(0, min(int(cy - crop_h * 0.40), src_h - crop_h))  # headroom
+        spec = {"mode": "single", "crop": (cw, crop_h, x, y)}
+
+        keys = _smooth_path(timeline, cw, src_w)
         if keys and len(keys) >= 2:
             spec["track_x"] = _map_keys_to_output(keys, spans, start)
-            spec["crop_wh"] = (crop_w, src_h)
+            spec["crop_wh"] = (cw, crop_h)
+            spec["crop_y"] = y
         return spec
 
     # No confident face: blurred fill, full scene visible (no blank walls).

@@ -91,8 +91,9 @@ def _reframe_chain(vin: str, crop_spec: dict, out_w: int, out_h: int) -> str:
     track = crop_spec.get("track_x")
     if track and crop_spec.get("mode") == "single" and crop_spec.get("crop_wh"):
         cw, ch = crop_spec["crop_wh"]
+        cy = crop_spec.get("crop_y", 0)
         xexpr = _track_x_expr(track)
-        return (f"{vin}crop=w={cw}:h={ch}:x='{xexpr}':y=0,"
+        return (f"{vin}crop=w={cw}:h={ch}:x='{xexpr}':y={cy},"
                 f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
                 f"crop={out_w}:{out_h}[reframed]")
     if crop_spec["mode"] == "blur":
