@@ -6,7 +6,10 @@ import argparse
 import sys
 
 from .captions import STYLES
+from .envfile import load_env
 from .pipeline import process
+
+load_env()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,8 +33,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--style", default="retention", choices=list(STYLES),
                         help="caption style")
     parser.add_argument("--llm", default=None, choices=["ollama"],
-                        help="use a local LLM (ollama) for smarter picks + copy "
-                             "(auto-detected if running)")
+                        help="(legacy) force local ollama for the fallback path; "
+                             "AI selection auto-detects Gemini/Groq/OpenAI/Ollama "
+                             "from env keys regardless")
     parser.add_argument("--prompt", default=None,
                         help="ClipAnything: only clip moments matching this text")
     parser.add_argument("--ratios", default="9:16",

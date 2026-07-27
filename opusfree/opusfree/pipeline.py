@@ -14,11 +14,11 @@ import re
 from typing import Callable, List, Optional
 
 from . import audio as audiomod
+from . import llm_select
 from .aspect import parse_ratio, ratio_tag, PLATFORM
 from .captions import build_ass, POWER_WORDS
 from .directives import (audio_directives, growth_kit, visual_directives)
 from .edl import build_plan
-from .llm import ollama_available
 from .meta import generate_metadata
 from .models import Clip, Word
 from .reframe import compute_crop_spec
@@ -44,6 +44,17 @@ def _tc(t: float) -> str:
     m = int((t % 3600) // 60)
     s = t % 60
     return f"{h:02d}:{m:02d}:{s:05.2f}"
+
+
+def _calibrate_scores(clips: List[Clip]) -> None:
+    """Give LLM-picked clips a clean high-to-low spread, keeping their order
+    and their own reasons/titles intact."""
+    clips.sort(key=lambda c: c.score, reverse=True)
+    n = len(clips)
+    for rank, c in enumerate(clips):
+        pct = 1.0 - (rank / max(n - 1, 1))
+        c.score = int(round(60 + 37 * (pct ** 1.2)))
+        c.viral_score = round(c.score / 10.0, 1)
 
 
 def emphasis_times(words: List[Word], duration: float, max_count: int = 6,
@@ -78,9 +89,7 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
     ensure_ffmpeg()
     os.makedirs(out_dir, exist_ok=True)
 
-    if use_llm is None and ollama_available():
-        use_llm = "ollama"
-        progress("setup", 2, "Ollama detected — smarter selection + copy ON.")
+    llm_provider = llm_select.available()
 
     progress("transcribe", 5, f"Transcribing with whisper '{model_size}'...")
     transcript = transcribe(video_path, model_size=model_size, language=language)
@@ -90,15 +99,32 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
     progress("analyze", 30, "Analyzing audio energy (spikes / thumbnail)...")
     alog = audiomod.amplitude_log(video_path)
 
-    if prompt:
-        progress("select", 34, f"ClipAnything search: {prompt!r}")
-        clips = select_by_prompt(transcript, prompt, count=count, min_dur=min_dur,
-                                 max_dur=max_dur, use_llm=use_llm)
-    else:
-        progress("select", 34, "Arc-scoring candidate moments...")
-        clips = select_clips(transcript, count=count, min_dur=min_dur,
-                             max_dur=max_dur, use_llm=use_llm)
-    progress("select", 44, f"Selected {len(clips)} clips.")
+    # LLM-first selection (how the real tools do it); heuristic is the fallback.
+    clips = None
+    if llm_provider:
+        progress("select", 34,
+                 f"AI highlight ranking via {llm_provider} (virality framework)...")
+        clips = llm_select.select_highlights(transcript, count=count,
+                                             min_dur=min_dur, max_dur=max_dur,
+                                             prompt=prompt)
+        if clips:
+            _calibrate_scores(clips)
+    if not clips:
+        if llm_provider:
+            progress("select", 34, "AI unavailable/failed — using built-in scorer.")
+        if prompt:
+            progress("select", 34, f"ClipAnything search: {prompt!r}")
+            clips = select_by_prompt(transcript, prompt, count=count,
+                                     min_dur=min_dur, max_dur=max_dur,
+                                     use_llm="ollama" if llm_provider == "ollama"
+                                     else None)
+        else:
+            progress("select", 34, "Arc-scoring candidate moments...")
+            clips = select_clips(transcript, count=count, min_dur=min_dur,
+                                 max_dur=max_dur)
+    progress("select", 44,
+             f"Selected {len(clips)} clips" +
+             (f" (AI: {llm_provider})" if llm_provider and clips else ""))
 
     if not clips:
         progress("done", 100, "No clips met the arc/payoff bar. Loosen filters.")

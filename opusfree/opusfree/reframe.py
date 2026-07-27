@@ -129,7 +129,7 @@ def compute_crop_spec(video_path: str, start: float, end: float, src_w: int,
             panels.append(_centered_crop(cx, pw, src_h, src_w, src_h))
         return {"mode": "split", "crops": panels}
 
-    if clusters:
+    if clusters and len(clusters[0]) >= 2:
         # Weight face centers by detection size (bigger face = closer speaker).
         best = clusters[0]
         total = sum(r[2] for r in best) or 1.0
@@ -137,9 +137,9 @@ def compute_crop_spec(video_path: str, start: float, end: float, src_w: int,
         return {"mode": "single",
                 "crop": _centered_crop(cx, crop_w, src_h, src_w, src_h)}
 
-    # No faces found anywhere: center crop as a last resort.
-    return {"mode": "single",
-            "crop": _centered_crop(src_w / 2.0, crop_w, src_h, src_w, src_h)}
+    # No confident face: DON'T crop to a random wall. Fit the whole frame on a
+    # blurred fill (like OpenShorts/Submagic) -- the full scene stays visible.
+    return {"mode": "blur"}
 
 
 def compute_crop(video_path: str, start: float, end: float, src_w: int,

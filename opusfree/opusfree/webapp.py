@@ -16,8 +16,11 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .captions import STYLES
+from .envfile import load_env
 from .multipart import parse as parse_multipart
 from .pipeline import process
+
+load_env()
 
 JOBS: dict[str, dict] = {}
 WORK_ROOT = os.path.join(tempfile.gettempdir(), "opusfree_jobs")
@@ -183,7 +186,8 @@ a.dl{color:#9a6bff;font-size:12px;text-decoration:none;margin-right:10px}
 .hidden{display:none}
 small.note{color:#6b7488}
 </style></head><body>
-<header><h1>opusfree</h1><p>A free, fully-local Opus Clip alternative — nothing leaves your machine.</p></header>
+<header><h1>opusfree</h1><p>A free Opus Clip alternative — runs on your machine.</p>
+<div id="aistat" style="margin-top:8px;font-size:12px">__AISTATUS__</div></header>
 <main>
  <div class="card" id="setup">
   <div class="drop" id="drop">Drop a video here, or click to choose a file
@@ -298,8 +302,17 @@ def run(host: str = "127.0.0.1", port: int = 8500) -> None:
         f'<option value="{s}"{" selected" if s=="retention" else ""}>{s}</option>'
         for s in STYLES
     )
+    from . import llm_select
+    prov = llm_select.available()
+    if prov:
+        ai = (f'<span class="chip" style="background:#0f3d24;color:#8affc1">'
+              f'✓ AI brain ON ({prov}) — Opus-style clip selection</span>')
+    else:
+        ai = ('<span class="chip" style="background:#3d2a0f;color:#ffcf8a">'
+              '● AI brain OFF — using built-in scorer. Paste a free Gemini key '
+              'in opusfree/.env for far better picks (see .env.example)</span>')
     global PAGE
-    PAGE = PAGE.replace("__STYLES__", options)
+    PAGE = PAGE.replace("__STYLES__", options).replace("__AISTATUS__", ai)
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"opusfree web UI running at http://{host}:{port}  (Ctrl+C to stop)")
     try:

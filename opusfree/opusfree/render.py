@@ -91,6 +91,14 @@ def _concat_chain(spans_rel: List[Tuple[float, float]]) -> Tuple[str, str, str]:
 
 
 def _reframe_chain(vin: str, crop_spec: dict, out_w: int, out_h: int) -> str:
+    if crop_spec["mode"] == "blur":
+        # Full frame fit onto a blurred, dimmed fill of itself -- no blank walls.
+        return (
+            f"{vin}split=2[bg][fg];"
+            f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+            f"crop={out_w}:{out_h},boxblur=24:2,eq=brightness=-0.12[bgb];"
+            f"[fg]scale={out_w}:-2:force_original_aspect_ratio=decrease[fgs];"
+            f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[reframed]")
     if crop_spec["mode"] == "split":
         (w0, h0, x0, y0), (w1, h1, x1, y1) = crop_spec["crops"]
         half = out_h // 2

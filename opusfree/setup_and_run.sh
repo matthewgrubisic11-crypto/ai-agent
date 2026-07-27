@@ -51,6 +51,18 @@ echo "Installing Python packages (first time only)..."
 python3 -m pip install --quiet --upgrade pip
 python3 -m pip install --quiet -r requirements.txt
 
+# 3b. AI brain setup: create .env on first run and report status.
+if [ ! -f .env ]; then
+  cp .env.example .env 2>/dev/null || true
+fi
+if grep -qE '^\s*(GEMINI_API_KEY|GROQ_API_KEY|OPENAI_API_KEY)=' .env 2>/dev/null; then
+  echo ">> AI brain: ON (key found in .env) — Opus-style clip selection active."
+else
+  echo ">> AI brain: OFF — using the built-in scorer."
+  echo ">> For MUCH better clip picks (free): get a Gemini key at"
+  echo ">>   https://aistudio.google.com/apikey  and paste it into opusfree/.env"
+fi
+
 # 4. Launch + open browser
 URL="http://localhost:8500"
 echo "Starting opusfree at $URL  (close this window to stop it)"

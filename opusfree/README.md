@@ -10,13 +10,32 @@ opusfree is an **AI video producer**: it doesn't just cut clips, it edits them �
 surgical filler/dead-air removal, retention captions, simulated multicam, and a
 full growth kit per clip.
 
+## The AI brain (turn this ON — it's the difference)
+
+The real tools (Opus, Submagic, OpenShorts) don't keyword-match — they run a
+**language model over the whole transcript** to find genuinely viral moments.
+opusfree does the same when it has an AI provider. Getting one is a one-time,
+**free** paste:
+
+1. Get a free key at **https://aistudio.google.com/apikey** (Google Gemini) —
+   or Groq at https://console.groq.com/keys.
+2. Copy `.env.example` to `.env` and paste it in:
+   `GEMINI_API_KEY=your_key_here`
+3. Done — it's detected automatically forever. The web UI shows **✓ AI brain ON**.
+
+Without a key it still works using a built-in scorer (and can use local Ollama
+if installed), but AI selection is dramatically better. This is the single
+biggest lever on quality.
+
 ## What it does
 
 | Capability | opusfree |
 |---|---|
 | Transcription (multi-language) | ✅ Whisper, word-level timestamps |
+| **LLM highlight selection** | ✅ Whole-transcript virality framework via Gemini/Groq/OpenAI/Ollama |
 | Multi-modal analysis | ✅ Transcript + audio-energy log (spikes → thumbnail, scoring) |
-| Arc-based selection | ✅ Requires hook + payoff; scores consensus-breaking / vulnerability / utility |
+| Reframe fallback | ✅ **Blurred-fill background** when no face is confident (no blank walls) |
+| Arc-based selection (no-key fallback) | ✅ Requires hook + payoff; scores consensus-breaking / vulnerability / utility |
 | Virality score | ✅ 1–10 **and** 0–100, with a per-point breakdown you can inspect |
 | **ClipAnything** (prompt) | ✅ Keyword/semantic matching (LLM-boosted with Ollama) |
 | Surgical editing | ✅ Cuts filler ("um", "you know") + dead air >0.2s, restitches tight |
