@@ -46,6 +46,14 @@ def _tc(t: float) -> str:
     return f"{h:02d}:{m:02d}:{s:05.2f}"
 
 
+def _tc_to_sec(tc: str) -> float:
+    try:
+        h, m, s = tc.split(":")
+        return int(h) * 3600 + int(m) * 60 + float(s)
+    except (ValueError, AttributeError):
+        return 0.0
+
+
 def _calibrate_scores(clips: List[Clip]) -> None:
     """Give LLM-picked clips a clean high-to-low spread, keeping their order
     and their own reasons/titles intact."""
@@ -82,14 +90,18 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
             gen_meta: bool = True, zooms: bool = True, sfx: bool = False,
             split_screen: bool = True, tighten: bool = True,
             enhance_audio: bool = True, music_path: str | None = None,
-            on_progress: ProgressFn = None) -> List[dict]:
+            hook_titles: bool = True, progress_bar: bool = True,
+            broll: bool = True, on_progress: ProgressFn = None) -> List[dict]:
     """Run the whole pipeline; write clips + spec-format manifest to out_dir."""
+    from . import broll as brollmod
     progress = on_progress or _noop
     ratios = ratios or ["9:16"]
     ensure_ffmpeg()
     os.makedirs(out_dir, exist_ok=True)
 
     llm_provider = llm_select.available()
+    beats = audiomod.detect_beats(music_path) if music_path else []
+    broll_on = broll and brollmod.have_pexels()
 
     progress("transcribe", 5, f"Transcribing with whisper '{model_size}'...")
     transcript = transcribe(video_path, model_size=model_size, language=language)
@@ -168,24 +180,45 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
             if meta.get("title"):
                 clip.title = meta["title"]
 
+        # Growth kit early so the hook title can go on the video.
+        kit = growth_kit(clip, _tc(thumb_src - clip.start), use_llm=use_llm)
+        hook = (kit["on_screen_titles"][0] if hook_titles
+                and kit.get("on_screen_titles") else None)
+
+        # Contextual B-roll: fetch a clip per keyword directive, place on cuts.
+        broll_clips = []
+        if broll_on:
+            vds = visual_directives(tight_words, cut_points, caption_style)
+            queries = [(d["timestamp"], d["b_roll_query"]) for d in vds
+                       if d.get("b_roll_query")][:3]
+            for tc, q in queries:
+                path = brollmod.fetch_broll(q, out_dir)
+                if path:
+                    start = _tc_to_sec(tc)
+                    if beats:
+                        start = audiomod.snap_to_beats([start], beats)[0]
+                    broll_clips.append((start, 2.5, path))
+            if broll_clips:
+                progress("render", base_pct,
+                         f"Clip {i}: added {len(broll_clips)} B-roll overlays")
+
         files, framing = {}, {}
         for ratio, out_w, out_h, value in parsed:
             spec = compute_crop_spec(video_path, clip.start, clip.end,
                                      src_w, src_h, target_ratio=out_w / out_h,
                                      allow_split=split_screen and value < 1)
-            ass = build_ass(tight_words, 0.0, out_w, out_h, caption_style)
+            ass = build_ass(tight_words, 0.0, out_w, out_h, caption_style,
+                            hook_title=hook)
             name = (f"{i:02d}_score{clip.score}_{_slug(clip.title, f'clip{i}')}"
                     f"_{ratio_tag(ratio)}.mp4")
             render_clip(video_path, os.path.join(out_dir, name),
                         clip.start, clip.end, spec, ass,
                         out_w=out_w, out_h=out_h, spans=plan.spans,
                         push=zooms, enhance_audio=enhance_audio,
-                        music_path=music_path)
+                        music_path=music_path, progress_bar=progress_bar,
+                        broll=broll_clips if value < 1 else None)
             files[ratio] = name
             framing[ratio] = spec["mode"]
-
-        # --- Spec-format record ---
-        kit = growth_kit(clip, _tc(thumb_src - clip.start), use_llm=use_llm)
         record = {
             "clip_id": f"{i:03d}",
             "timeframes": {"start": _tc(clip.start), "end": _tc(clip.end)},

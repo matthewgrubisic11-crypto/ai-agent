@@ -93,3 +93,42 @@ DIALOGUE_ENHANCE = (
     "acompressor=threshold=-18dB:ratio=3:attack=5:release=120,"
     "loudnorm=I=-14:TP=-1.5:LRA=11"
 )
+
+
+def detect_beats(music_path: str, max_beats: int = 400) -> List[float]:
+    """Estimate beat times (seconds) in a music file via energy onsets.
+
+    Lightweight onset detector: RMS per ~46ms window, then local-max energy
+    jumps above an adaptive threshold. Good enough to sync cuts/pops to the
+    groove without a heavy DSP dependency.
+    """
+    log = amplitude_log(music_path)
+    if len(log) < 4:
+        return []
+    vals = [v for _, v in log]
+    # spectral-flux-ish: positive energy differences
+    flux = [max(0.0, vals[i] - vals[i - 1]) for i in range(1, len(vals))]
+    mean, std = _stats(flux)
+    thresh = mean + 1.3 * std
+    beats, last = [], -1.0
+    for i in range(1, len(flux) - 1):
+        t = log[i + 1][0]
+        if (flux[i] > thresh and flux[i] >= flux[i - 1] and
+                flux[i] >= flux[i + 1] and t - last > 0.28):
+            beats.append(round(t, 3))
+            last = t
+        if len(beats) >= max_beats:
+            break
+    return beats
+
+
+def snap_to_beats(times: List[float], beats: List[float],
+                  tol: float = 0.18) -> List[float]:
+    """Nudge each time onto the nearest beat within ``tol`` seconds."""
+    if not beats:
+        return times
+    out = []
+    for t in times:
+        nearest = min(beats, key=lambda b: abs(b - t))
+        out.append(nearest if abs(nearest - t) <= tol else t)
+    return out

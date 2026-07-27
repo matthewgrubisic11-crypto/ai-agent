@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .captions import STYLES
 from .envfile import load_env
-from .multipart import parse as parse_multipart
+from .multipart import parse_multi
 from .pipeline import process
 
 load_env()
@@ -42,9 +42,13 @@ def _run_job(job_id: str, video_path: str, opts: dict) -> None:
             model_size=opts["model"], caption_style=opts["style"],
             use_llm=opts["llm"], prompt=opts["prompt"] or None,
             ratios=opts["ratios"], gen_meta=opts["meta"],
-            zooms=opts.get("zooms", True), sfx=opts.get("sfx", True),
+            zooms=opts.get("zooms", True), sfx=False,
             split_screen=opts.get("split", True),
             tighten=opts.get("tighten", True), enhance_audio=opts.get("enhance", True),
+            music_path=opts.get("music_path"),
+            hook_titles=opts.get("hook_titles", True),
+            progress_bar=opts.get("progress_bar", True),
+            broll=opts.get("broll", True),
             on_progress=progress,
         )
         job["clips"] = manifest
@@ -115,7 +119,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
-        fields, upload = parse_multipart(body, self.headers.get("Content-Type", ""))
+        fields, files = parse_multi(body, self.headers.get("Content-Type", ""))
+        upload = files.get("video")
         if not upload or not upload[1]:
             self._send(400, b'{"error":"no video uploaded"}', "application/json")
             return
@@ -127,6 +132,13 @@ class Handler(BaseHTTPRequestHandler):
         video_path = os.path.join(out_dir, "_source_" + src_name)
         with open(video_path, "wb") as fh:
             fh.write(upload[1])
+
+        music_path = None
+        music = files.get("music")
+        if music and music[1]:
+            music_path = os.path.join(out_dir, "_music_" + os.path.basename(music[0]))
+            with open(music_path, "wb") as fh:
+                fh.write(music[1])
 
         def g(name, default):
             return fields.get(name, default)
@@ -144,6 +156,10 @@ class Handler(BaseHTTPRequestHandler):
             "split": g("split", "on") == "on",
             "tighten": g("tighten", "on") == "on",
             "enhance": g("enhance", "on") == "on",
+            "hook_titles": g("hook", "on") == "on",
+            "progress_bar": g("bar", "on") == "on",
+            "broll": g("broll", "on") == "on",
+            "music_path": music_path,
             "prompt": g("prompt", "").strip(),
             "ratios": [r for r in g("ratios", "9:16").split(",") if r],
         }
@@ -215,7 +231,12 @@ small.note{color:#6b7488}
    <label style="margin:0"><input type="checkbox" id="zooms" checked style="width:auto"> Subtle motion (slow push)</label>
    <label style="margin:0"><input type="checkbox" id="split" checked style="width:auto"> Auto split-screen</label>
    <label style="margin:0"><input type="checkbox" id="enhance" checked style="width:auto"> Enhance dialogue audio</label>
+   <label style="margin:0"><input type="checkbox" id="hook" checked style="width:auto"> Hook title card</label>
+   <label style="margin:0"><input type="checkbox" id="bar" checked style="width:auto"> Progress bar</label>
+   <label style="margin:0"><input type="checkbox" id="broll" checked style="width:auto"> B-roll (needs Pexels key)</label>
   </div>
+  <label>Background music (optional — ducks under speech, syncs to beat)</label>
+  <input type="file" id="music" accept="audio/*">
   <button id="go" disabled>Generate clips</button>
   <small class="note">First run downloads the Whisper model once. Big videos take a few minutes on CPU.</small>
  </div>
@@ -248,7 +269,10 @@ $('#go').onclick=async()=>{
   fd.append('split',$('#split').checked?'on':'off');
   fd.append('tighten',$('#tighten').checked?'on':'off');
   fd.append('enhance',$('#enhance').checked?'on':'off');
-  fd.append('llm',$('#llm').checked?'on':'off');
+  fd.append('hook',$('#hook').checked?'on':'off');
+  fd.append('bar',$('#bar').checked?'on':'off');
+  fd.append('broll',$('#broll').checked?'on':'off');
+  if($('#music').files[0]) fd.append('music',$('#music').files[0]);
   $('#go').disabled=true;$('#progress').classList.remove('hidden');
   const r=await fetch('/process',{method:'POST',body:fd});
   const j=await r.json(); job=j.job; poll();

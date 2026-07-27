@@ -116,10 +116,16 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
                 spans: Optional[List[Tuple[float, float]]] = None,
                 push: bool = True, enhance_audio: bool = True,
                 music_path: Optional[str] = None,
+                progress_bar: bool = True,
+                broll: Optional[List[Tuple[float, float, str]]] = None,
                 # accepted for back-compat; sfx is intentionally ignored now
                 zoom_times: Optional[List[float]] = None,
                 sfx: bool = False) -> None:
-    """Render one finished clip (two-pass; captions always burned in)."""
+    """Render one finished clip (two-pass; captions always burned in).
+
+    Pass 1: assemble+reframe+push+audio. (opt) B-roll overlay. Pass 2: burn
+    captions (+ progress bar). ``broll`` = [(start, dur, path), ...] in the
+    OUTPUT timeline."""
     duration = max(clip_end - clip_start, 0.1)
     spans = spans or [(clip_start, clip_end)]
     spans_rel = [(max(0.0, s - clip_start), max(0.0, e - clip_start))
@@ -161,15 +167,29 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
             "-c:v", "libx264", "-preset", "medium", "-crf", "19",
             "-c:a", "aac", "-b:a", "160k", stage1])
 
-    # ---- PASS 2: burn captions with the simple, ffmpeg-8-proven form ----
-    cmd2 = (["ffmpeg", "-y", "-i", stage1,
-             "-vf", f"subtitles=filename={ass_name}",
-             "-c:v", "libx264", "-preset", "medium", "-crf", "19",
-             "-c:a", "copy", "-movflags", "+faststart", out_abs])
+    # ---- optional B-roll overlay (under captions) ----
+    def _stage_for_captions() -> str:
+        if broll:
+            from .broll import overlay_broll
+            stage1b = os.path.join(tmp_dir, "stage1b.mp4")
+            if overlay_broll(stage1, stage1b, broll, out_w, out_h):
+                return stage1b
+        return stage1
+
+    # ---- PASS 2: captions (+ progress bar) with the ffmpeg-8-proven form ----
+    vf2 = f"subtitles=filename={ass_name}"
+    if progress_bar:
+        vf2 += (f",drawbox=x=0:y=ih-14:w='iw*min(t/{out_dur:.2f}\\,1)':h=14"
+                f":color=0x22E0FF@0.9:t=fill")
 
     try:
         subprocess.run(cmd1, check=True, capture_output=True, text=True,
                        cwd=tmp_dir)
+        cap_input = _stage_for_captions()
+        cmd2 = (["ffmpeg", "-y", "-i", os.path.abspath(cap_input),
+                 "-vf", vf2,
+                 "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+                 "-c:a", "copy", "-movflags", "+faststart", out_abs])
         try:
             subprocess.run(cmd2, check=True, capture_output=True, text=True,
                            cwd=tmp_dir)
@@ -178,7 +198,7 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
                     if cap_exc.stderr else str(cap_exc))
             print(f"  [render] caption burn failed ({last}); "
                   "delivering clip without captions.")
-            shutil.copyfile(stage1, out_abs)
+            shutil.copyfile(cap_input, out_abs)
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffmpeg failed:\n{exc.stderr[-1800:]}") from exc
     finally:

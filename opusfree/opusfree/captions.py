@@ -139,13 +139,32 @@ def _chunk_words(words: List[Word], max_words: int, max_dur: float
     return chunks
 
 
+def _wrap_title(text: str, per_line: int = 22) -> str:
+    """Wrap a hook title into <=2 lines for the top overlay."""
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        if len(cur) + len(w) + 1 > per_line and cur:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    if cur:
+        lines.append(cur)
+    return r"\N".join(lines[:2])
+
+
 def build_ass(words: List[Word], clip_start: float, video_w: int, video_h: int,
-              style_name: str = "retention", emoji: bool | None = None) -> str:
-    """Return ASS subtitle text. ``words`` should already be clip-relative."""
+              style_name: str = "retention", emoji: bool | None = None,
+              hook_title: str | None = None, hook_secs: float = 2.6) -> str:
+    """Return ASS subtitle text. ``words`` should already be clip-relative.
+
+    If ``hook_title`` is given, a bold title card is shown at the top for the
+    first ``hook_secs`` seconds (Submagic-style hook overlay)."""
     st = STYLES.get(style_name, STYLES["retention"])
     use_emoji = st["emoji"] if emoji is None else emoji
     size = max(28, int(video_h * st["size_frac"]))
     margin_v = int(video_h * st["margin_frac"])
+    title_size = max(30, int(video_h * 0.030))
     # For the opaque-box style the OutlineColour is the box fill.
     outline_col = st["box_color"] if st["border_style"] == 3 else st["outline"]
 
@@ -153,12 +172,13 @@ def build_ass(words: List[Word], clip_start: float, video_w: int, video_h: int,
 ScriptType: v4.00+
 PlayResX: {video_w}
 PlayResY: {video_h}
-WrapStyle: 2
+WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{st['font']},{size},&H00{st['primary']},&H00{st['highlight']},&H00{outline_col},&H80000000,-1,0,0,0,100,100,0,0,{st['border_style']},{st['outline_w']},{st['shadow']},2,60,60,{margin_v},1
+Style: Hook,Arial Black,{title_size},&H00FFFFFF,&H00FFFFFF,&H00101010,&H90000000,-1,0,0,0,100,100,0,0,3,6,0,8,80,80,{int(video_h*0.06)},1
 """
 
     pop_tag = (r"{\fscx80\fscy80\t(0,110,\fscx100\fscy100)}"
@@ -186,6 +206,12 @@ Style: Cap,{st['font']},{size},&H00{st['primary']},&H00{st['highlight']},&H00{ou
                 parts.append(rf"{{\kf{k_cs}}}{text} ")
         lines.append(f"Dialogue: 0,{_fmt_ts(c_start)},{_fmt_ts(c_end)},"
                      f"Cap,,0,0,0,,{''.join(parts).strip()}")
+
+    if hook_title:
+        title = _wrap_title(hook_title.strip().upper())
+        fade = r"{\fad(150,200)}"
+        lines.insert(0, f"Dialogue: 1,{_fmt_ts(0)},{_fmt_ts(hook_secs)},"
+                        f"Hook,,0,0,0,,{fade}{title}")
 
     return (header + "\n[Events]\n"
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "

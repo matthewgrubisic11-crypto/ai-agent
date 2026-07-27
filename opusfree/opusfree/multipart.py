@@ -13,15 +13,26 @@ from typing import Dict, Optional, Tuple
 
 def parse(body: bytes, content_type: str
           ) -> Tuple[Dict[str, str], Optional[Tuple[str, bytes]]]:
-    """Return (fields, file) where file is (filename, bytes) or None."""
+    """Return (fields, file) where file is the FIRST uploaded (filename, bytes).
+
+    Back-compatible; use parse_multi() when you need every uploaded file.
+    """
+    fields, files = parse_multi(body, content_type)
+    first = next(iter(files.values()), None)
+    return fields, first
+
+
+def parse_multi(body: bytes, content_type: str
+                ) -> Tuple[Dict[str, str], Dict[str, Tuple[str, bytes]]]:
+    """Return (fields, files) where files maps field_name -> (filename, bytes)."""
     m = re.search(r"boundary=([^;]+)", content_type)
     if not m:
-        return {}, None
+        return {}, {}
     boundary = m.group(1).strip().strip('"').encode()
     delim = b"--" + boundary
 
     fields: Dict[str, str] = {}
-    upload: Optional[Tuple[str, bytes]] = None
+    files: Dict[str, Tuple[str, bytes]] = {}
 
     for part in body.split(delim):
         part = part.strip(b"\r\n")
@@ -37,8 +48,8 @@ def parse(body: bytes, content_type: str
         name = name_m.group(1)
         file_m = re.search(r'filename="([^"]*)"', headers)
         if file_m and file_m.group(1):
-            upload = (file_m.group(1), data)
+            files[name] = (file_m.group(1), data)
         else:
             fields[name] = data.decode("utf-8", "replace")
 
-    return fields, upload
+    return fields, files
