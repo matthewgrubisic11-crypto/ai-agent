@@ -23,7 +23,7 @@ import subprocess
 import tempfile
 from typing import List, Optional, Tuple
 
-from .audio import DIALOGUE_ENHANCE
+from .audio import DIALOGUE_ENHANCE, DIALOGUE_ENHANCE_CLEAN
 
 FPS = 30
 
@@ -72,7 +72,29 @@ def _concat_chain(spans_rel: List[Tuple[float, float]]) -> Tuple[str, str, str]:
     return ";".join(parts), "[vc]", "[ac]"
 
 
+def _track_x_expr(keys: List[Tuple[float, float]]) -> str:
+    """Piecewise-linear crop-x expression over output time t from keyframes."""
+    keys = sorted(keys)
+    # nested if(): before first -> x0; between k,k+1 -> lerp; after last -> xn
+    expr = f"{keys[-1][1]:.1f}"
+    for i in range(len(keys) - 1, 0, -1):
+        t0, x0 = keys[i - 1]
+        t1, x1 = keys[i]
+        if t1 - t0 < 1e-3:
+            continue
+        lerp = f"({x0:.1f}+({x1 - x0:.1f})*(t-{t0:.3f})/{t1 - t0:.3f})"
+        expr = f"if(lt(t,{t1:.3f}),{lerp},{expr})"
+    return f"if(lt(t,{keys[0][0]:.3f}),{keys[0][1]:.1f},{expr})"
+
+
 def _reframe_chain(vin: str, crop_spec: dict, out_w: int, out_h: int) -> str:
+    track = crop_spec.get("track_x")
+    if track and crop_spec.get("mode") == "single" and crop_spec.get("crop_wh"):
+        cw, ch = crop_spec["crop_wh"]
+        xexpr = _track_x_expr(track)
+        return (f"{vin}crop=w={cw}:h={ch}:x='{xexpr}':y=0,"
+                f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+                f"crop={out_w}:{out_h}[reframed]")
     if crop_spec["mode"] == "blur":
         return (
             f"{vin}split=2[bg][fg];"
@@ -115,9 +137,11 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
                 out_w: int = 1080, out_h: int = 1920,
                 spans: Optional[List[Tuple[float, float]]] = None,
                 push: bool = True, enhance_audio: bool = True,
+                clean_audio: bool = False,
                 music_path: Optional[str] = None,
                 progress_bar: bool = True,
                 broll: Optional[List[Tuple[float, float, str]]] = None,
+                track_x: Optional[List[Tuple[float, float]]] = None,
                 # accepted for back-compat; sfx is intentionally ignored now
                 zoom_times: Optional[List[float]] = None,
                 sfx: bool = False) -> None:
@@ -127,6 +151,8 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
     captions (+ progress bar). ``broll`` = [(start, dur, path), ...] in the
     OUTPUT timeline."""
     duration = max(clip_end - clip_start, 0.1)
+    if track_x:
+        crop_spec = {**crop_spec, "track_x": track_x}
     spans = spans or [(clip_start, clip_end)]
     spans_rel = [(max(0.0, s - clip_start), max(0.0, e - clip_start))
                  for s, e in spans]
@@ -148,7 +174,8 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
     if push:
         vtail += _push_filter(out_dur, out_w, out_h)
     vtail += "[vout]"
-    atail = f"{ac}{DIALOGUE_ENHANCE if enhance_audio else 'anull'}[a0]"
+    enh = (DIALOGUE_ENHANCE_CLEAN if clean_audio else DIALOGUE_ENHANCE)
+    atail = f"{ac}{enh if enhance_audio else 'anull'}[a0]"
 
     inputs = ["-ss", f"{clip_start:.3f}", "-i", video_abs, "-t", f"{duration:.3f}"]
     amap = "[a0]"

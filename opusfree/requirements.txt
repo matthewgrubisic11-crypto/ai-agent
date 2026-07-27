@@ -4,6 +4,9 @@ faster-whisper>=1.0.0
 # Auto-reframe: face tracking for the 9:16 crop (headless = no GUI deps)
 opencv-python-headless>=4.8.0,<5.0.0
 
+# Link ingestion (paste a YouTube/Vimeo URL instead of a file)
+yt-dlp>=2024.1.1
+
 # Note: you ALSO need the ffmpeg + ffprobe binaries on your PATH.
 #   macOS:        brew install ffmpeg
 #   Ubuntu/Debian: sudo apt install ffmpeg

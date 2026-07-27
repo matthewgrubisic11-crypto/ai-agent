@@ -8,12 +8,13 @@ from .models import Segment, Transcript, Word
 
 
 def transcribe(video_path: str, model_size: str = "base", language: str | None = None,
-               compute_type: str = "int8") -> Transcript:
+               compute_type: str = "int8", translate: bool = False) -> Transcript:
     """Transcribe a media file into a Transcript with word-level timings.
 
     Runs entirely on your machine via faster-whisper. ``model_size`` trades
     speed for accuracy: tiny/base (fast, CPU-friendly) up to large-v3 (best,
-    wants a GPU). Everything downstream only needs the word timings.
+    wants a GPU). ``translate=True`` outputs English captions for any spoken
+    language (Whisper's built-in translate task -- free).
     """
     try:
         from faster_whisper import WhisperModel
@@ -30,6 +31,7 @@ def transcribe(video_path: str, model_size: str = "base", language: str | None =
     segments_iter, _info = model.transcribe(
         video_path,
         language=language,
+        task="translate" if translate else "transcribe",
         word_timestamps=True,
         vad_filter=True,  # skip long silences -> tighter clips
     )

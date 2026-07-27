@@ -94,6 +94,13 @@ DIALOGUE_ENHANCE = (
     "loudnorm=I=-14:TP=-1.5:LRA=11"
 )
 
+# "Clean audio": FFT denoise + de-esser-ish high shelf tame, then enhance.
+DIALOGUE_ENHANCE_CLEAN = (
+    "afftdn=nf=-25,highpass=f=80,"
+    "acompressor=threshold=-18dB:ratio=3:attack=5:release=120,"
+    "loudnorm=I=-14:TP=-1.5:LRA=11"
+)
+
 
 def detect_beats(music_path: str, max_beats: int = 400) -> List[float]:
     """Estimate beat times (seconds) in a music file via energy onsets.

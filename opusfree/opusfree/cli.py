@@ -18,7 +18,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Turn one long video into scored, captioned, vertical clips "
                     "-- a free, fully-local Opus Clip alternative.",
     )
-    parser.add_argument("video", help="path to a local video/audio file")
+    parser.add_argument("video",
+                        help="local video/audio file OR a link (YouTube etc.)")
     parser.add_argument("-o", "--out", default="clips", help="output directory")
     parser.add_argument("-n", "--count", type=int, default=10,
                         help="number of clips to produce (default 10)")
@@ -52,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="keep dead air / filler words (no surgical cut)")
     parser.add_argument("--no-enhance", action="store_true",
                         help="skip dialogue normalization/compression")
+    parser.add_argument("--clean-audio", action="store_true",
+                        help="noise removal (studio-clean dialogue)")
+    parser.add_argument("--translate", action="store_true",
+                        help="translate captions to English (any language)")
     parser.add_argument("--music", default=None,
                         help="path to a music file to duck under dialogue")
     args = parser.parse_args(argv)
@@ -66,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
             ratios=ratios, gen_meta=not args.no_meta,
             zooms=not args.no_zooms, sfx=not args.no_sfx,
             split_screen=not args.no_split, tighten=not args.no_tighten,
-            enhance_audio=not args.no_enhance, music_path=args.music,
+            enhance_audio=not args.no_enhance, clean_audio=args.clean_audio,
+            translate=args.translate, music_path=args.music,
         )
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

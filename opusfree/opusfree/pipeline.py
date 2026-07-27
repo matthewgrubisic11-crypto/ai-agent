@@ -89,22 +89,33 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
             prompt: str | None = None, ratios: List[str] | None = None,
             gen_meta: bool = True, zooms: bool = True, sfx: bool = False,
             split_screen: bool = True, tighten: bool = True,
-            enhance_audio: bool = True, music_path: str | None = None,
+            enhance_audio: bool = True, clean_audio: bool = False,
+            translate: bool = False, music_path: str | None = None,
             hook_titles: bool = True, progress_bar: bool = True,
             broll: bool = True, on_progress: ProgressFn = None) -> List[dict]:
     """Run the whole pipeline; write clips + spec-format manifest to out_dir."""
     from . import broll as brollmod
+    from . import ingest
     progress = on_progress or _noop
     ratios = ratios or ["9:16"]
     ensure_ffmpeg()
     os.makedirs(out_dir, exist_ok=True)
 
+    # Accept a link or a local file.
+    if ingest.is_url(video_path):
+        progress("ingest", 2, "Downloading video from link...")
+        video_path = ingest.fetch(video_path, out_dir,
+                                  on_progress=lambda m: progress("ingest", 3, m))
+
     llm_provider = llm_select.available()
     beats = audiomod.detect_beats(music_path) if music_path else []
     broll_on = broll and brollmod.have_pexels()
 
-    progress("transcribe", 5, f"Transcribing with whisper '{model_size}'...")
-    transcript = transcribe(video_path, model_size=model_size, language=language)
+    progress("transcribe", 5,
+             f"Transcribing with whisper '{model_size}'"
+             f"{' (translating to English)' if translate else ''}...")
+    transcript = transcribe(video_path, model_size=model_size,
+                            language=language, translate=translate)
     progress("transcribe", 26,
              f"{len(transcript.segments)} segments, {transcript.duration:.0f}s.")
 
@@ -206,7 +217,8 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
         for ratio, out_w, out_h, value in parsed:
             spec = compute_crop_spec(video_path, clip.start, clip.end,
                                      src_w, src_h, target_ratio=out_w / out_h,
-                                     allow_split=split_screen and value < 1)
+                                     allow_split=split_screen and value < 1,
+                                     spans=plan.spans)
             ass = build_ass(tight_words, 0.0, out_w, out_h, caption_style,
                             hook_title=hook)
             name = (f"{i:02d}_score{clip.score}_{_slug(clip.title, f'clip{i}')}"
@@ -215,6 +227,7 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
                         clip.start, clip.end, spec, ass,
                         out_w=out_w, out_h=out_h, spans=plan.spans,
                         push=zooms, enhance_audio=enhance_audio,
+                        clean_audio=clean_audio, track_x=spec.get("track_x"),
                         music_path=music_path, progress_bar=progress_bar,
                         broll=broll_clips if value < 1 else None)
             files[ratio] = name

@@ -45,6 +45,8 @@ def _run_job(job_id: str, video_path: str, opts: dict) -> None:
             zooms=opts.get("zooms", True), sfx=False,
             split_screen=opts.get("split", True),
             tighten=opts.get("tighten", True), enhance_audio=opts.get("enhance", True),
+            clean_audio=opts.get("clean_audio", False),
+            translate=opts.get("translate", False),
             music_path=opts.get("music_path"),
             hook_titles=opts.get("hook_titles", True),
             progress_bar=opts.get("progress_bar", True),
@@ -121,17 +123,22 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         fields, files = parse_multi(body, self.headers.get("Content-Type", ""))
         upload = files.get("video")
-        if not upload or not upload[1]:
-            self._send(400, b'{"error":"no video uploaded"}', "application/json")
+        url = fields.get("url", "").strip()
+        if (not upload or not upload[1]) and not url:
+            self._send(400, b'{"error":"no video or link provided"}',
+                       "application/json")
             return
 
         job_id = uuid.uuid4().hex[:12]
         out_dir = os.path.join(WORK_ROOT, job_id)
         os.makedirs(out_dir, exist_ok=True)
-        src_name = os.path.basename(upload[0])
-        video_path = os.path.join(out_dir, "_source_" + src_name)
-        with open(video_path, "wb") as fh:
-            fh.write(upload[1])
+        if upload and upload[1]:
+            src_name = os.path.basename(upload[0])
+            video_path = os.path.join(out_dir, "_source_" + src_name)
+            with open(video_path, "wb") as fh:
+                fh.write(upload[1])
+        else:
+            video_path = url  # a link; pipeline downloads via yt-dlp
 
         music_path = None
         music = files.get("music")
@@ -159,6 +166,8 @@ class Handler(BaseHTTPRequestHandler):
             "hook_titles": g("hook", "on") == "on",
             "progress_bar": g("bar", "on") == "on",
             "broll": g("broll", "on") == "on",
+            "translate": g("translate", "") == "on",
+            "clean_audio": g("clean", "") == "on",
             "music_path": music_path,
             "prompt": g("prompt", "").strip(),
             "ratios": [r for r in g("ratios", "9:16").split(",") if r],
@@ -209,6 +218,8 @@ small.note{color:#6b7488}
   <div class="drop" id="drop">Drop a video here, or click to choose a file
     <div id="fname" class="muted" style="margin-top:8px"></div></div>
   <input type="file" id="file" accept="video/*,audio/*" class="hidden">
+  <label>…or paste a video link (YouTube, Vimeo, etc.)</label>
+  <input id="url" placeholder="https://www.youtube.com/watch?v=...">
   <label>ClipAnything — describe what to clip (optional)</label>
   <input id="prompt" placeholder="e.g. every moment about pricing / funny reactions / advice for founders">
   <div class="grid">
@@ -231,6 +242,8 @@ small.note{color:#6b7488}
    <label style="margin:0"><input type="checkbox" id="zooms" checked style="width:auto"> Subtle motion (slow push)</label>
    <label style="margin:0"><input type="checkbox" id="split" checked style="width:auto"> Auto split-screen</label>
    <label style="margin:0"><input type="checkbox" id="enhance" checked style="width:auto"> Enhance dialogue audio</label>
+   <label style="margin:0"><input type="checkbox" id="clean" style="width:auto"> Clean audio (noise removal)</label>
+   <label style="margin:0"><input type="checkbox" id="translate" style="width:auto"> Translate captions → English</label>
    <label style="margin:0"><input type="checkbox" id="hook" checked style="width:auto"> Hook title card</label>
    <label style="margin:0"><input type="checkbox" id="bar" checked style="width:auto"> Progress bar</label>
    <label style="margin:0"><input type="checkbox" id="broll" checked style="width:auto"> B-roll (needs Pexels key)</label>
@@ -257,12 +270,17 @@ drop.onclick=()=>fi.click();
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('hover')}));
 drop.addEventListener('drop',ev=>{file=ev.dataTransfer.files[0];shown()});
 fi.onchange=()=>{file=fi.files[0];shown()};
-function shown(){if(file){$('#fname').textContent=file.name;$('#go').disabled=false}}
+$('#url').oninput=shown;
+function shown(){if(file){$('#fname').textContent=file.name}$('#go').disabled=!(file||$('#url').value.trim())}
 $('#go').onclick=async()=>{
-  if(!file)return;
+  const url=$('#url').value.trim();
+  if(!file&&!url)return;
   const fd=new FormData();
-  fd.append('video',file);
+  if(file) fd.append('video',file);
+  if(url) fd.append('url',url);
   ['count','min_dur','max_dur','model','style','prompt'].forEach(k=>fd.append(k,$('#'+k).value));
+  fd.append('translate',$('#translate').checked?'on':'off');
+  fd.append('clean',$('#clean').checked?'on':'off');
   fd.append('ratios',$('#ratios').value);
   fd.append('meta',$('#meta').checked?'on':'off');
   fd.append('zooms',$('#zooms').checked?'on':'off');
