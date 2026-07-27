@@ -1,14 +1,12 @@
-"""Kinetic, retention-first captions as ASS subtitles.
+"""Kinetic caption engine with a Submagic-style preset library.
 
-Spec-aligned engine:
-- <=3 words per screen (long lines kill vertical retention)
-- centered in the 9:16 safe zone, heavy-stroke high-contrast sans
-- karaoke highlight on the spoken word + pop-in per phrase
-- SEMANTIC color: money/profit -> green, danger/mistake -> red, plus a
-  configurable accent for other power words; optional fire emoji on
-  high-energy words.
+Word-by-word active-word highlight (2.3x completion in A/B tests) rendered as
+ASS/libass. Presets vary font, size, color, position, words-per-screen, pop
+animation, and border style -- including the signature "highlight box" look
+(opaque box behind the active words, BorderStyle=3).
 
-Rendering is ffmpeg/libass in render.py.
+Semantic color still applies inside every style: money/profit -> green,
+danger/mistake -> red.
 """
 
 from __future__ import annotations
@@ -43,41 +41,67 @@ POWER_WORDS = MONEY_WORDS | DANGER_WORDS | HIGH_ENERGY | {
     "last", "important", "powerful", "changed", "love",
 }
 
+# --- Preset library -------------------------------------------------------
+# border_style: 1 = outline+shadow, 3 = opaque box behind text (the box look)
+# box_color:    used when border_style==3 (the box fill), ASS BBGGRR
+_BASE = {
+    "size_frac": 0.050, "margin_frac": 0.34, "primary": "FFFFFF",
+    "highlight": "00E9FF", "accent": "00E9FF", "outline": "000000",
+    "outline_w": 4, "shadow": 1, "uppercase": True, "max_words": 2,
+    "max_dur": 1.2, "pop": True, "emoji": False, "border_style": 1,
+    "box_color": "000000", "font": "Arial Black",
+}
+
+
+def _style(**over):
+    s = dict(_BASE)
+    s.update(over)
+    return s
+
+
 STYLES = {
-    # Clean, modern, high-retention: 2 words at a time, active word highlighted.
-    "retention": {
-        "font": "Arial Black", "size_frac": 0.050, "margin_frac": 0.34,
-        "primary": "FFFFFF", "highlight": "00E9FF", "accent": "00E9FF",
-        "outline": "000000", "outline_w": 4, "shadow": 1,
-        "uppercase": True, "max_words": 2, "max_dur": 1.2, "pop": True,
-        "emoji": False,
-    },
-    "clean-white": {
-        "font": "Arial", "size_frac": 0.040, "margin_frac": 0.26,
-        "primary": "FFFFFF", "highlight": "00D7FF", "accent": "00D7FF",
-        "outline": "202020", "outline_w": 3, "shadow": 1,
-        "uppercase": False, "max_words": 3, "max_dur": 2.0, "pop": False,
-        "emoji": False,
-    },
-    "bold-yellow": {
-        "font": "Arial Black", "size_frac": 0.046, "margin_frac": 0.24,
-        "primary": "FFFFFF", "highlight": "00F0FF", "accent": "00F0FF",
-        "outline": "000000", "outline_w": 4, "shadow": 1,
-        "uppercase": True, "max_words": 3, "max_dur": 1.8, "pop": True,
-        "emoji": False,
-    },
-    "hormozi": {
-        "font": "Arial Black", "size_frac": 0.055, "margin_frac": 0.30,
-        "primary": "FFFFFF", "highlight": "00FF00", "accent": "00FF00",
-        "outline": "000000", "outline_w": 6, "shadow": 2,
-        "uppercase": True, "max_words": 3, "max_dur": 1.6, "pop": True,
-        "emoji": True,
-    },
+    # clean modern default
+    "retention": _style(),
+    # one word at a time, big
+    "word-pop": _style(max_words=1, size_frac=0.060, highlight="00E9FF"),
+    # Hormozi green, all caps, punchy
+    "hormozi": _style(highlight="00FF00", accent="00FF00", outline_w=5,
+                      size_frac=0.055),
+    # MrBeast-ish thick bold, red highlight
+    "beast": _style(highlight="3333EF", accent="3333EF", size_frac=0.058,
+                    outline_w=6),
+    # TikTok classic white with yellow karaoke
+    "tiktok": _style(highlight="00F0FF", accent="00F0FF", uppercase=False,
+                     size_frac=0.044, outline_w=3),
+    # opaque yellow box, black text (Submagic signature)
+    "box-yellow": _style(border_style=3, box_color="20E0FF", primary="000000",
+                         highlight="000000", accent="000000", outline_w=1,
+                         shadow=0, size_frac=0.046),
+    # opaque black box, white text with yellow active word
+    "box-black": _style(border_style=3, box_color="000000", primary="FFFFFF",
+                        highlight="20E0FF", accent="20E0FF", outline_w=1,
+                        shadow=0, size_frac=0.046),
+    # green opaque box
+    "box-green": _style(border_style=3, box_color="55C522", primary="FFFFFF",
+                        highlight="FFFFFF", accent="FFFFFF", outline_w=1,
+                        shadow=0, size_frac=0.046),
+    # neon cyan glow
+    "neon": _style(primary="F5FFFF", highlight="FFF000", accent="FFF000",
+                   outline="AA6600", outline_w=3, shadow=3),
+    # minimal clean lowercase, small, bottom-third
+    "minimal": _style(uppercase=False, size_frac=0.036, margin_frac=0.20,
+                      outline_w=2, pop=False, highlight="FFFFFF",
+                      accent="FFFFFF", font="Arial"),
+    # bold white, no color (subtle)
+    "clean-white": _style(highlight="FFFFFF", accent="FFFFFF", uppercase=False,
+                          size_frac=0.042, outline_w=3, pop=False, font="Arial"),
+    # classic bold yellow karaoke
+    "bold-yellow": _style(highlight="00F0FF", accent="00F0FF", max_words=3,
+                          size_frac=0.046),
 }
 
 
 def word_color(bare: str, style: dict) -> str | None:
-    """Semantic color for a word, or None for default."""
     if bare in MONEY_WORDS or bare.rstrip("%$kmb").isdigit():
         return COLOR_GREEN
     if bare in DANGER_WORDS:
@@ -117,12 +141,13 @@ def _chunk_words(words: List[Word], max_words: int, max_dur: float
 
 def build_ass(words: List[Word], clip_start: float, video_w: int, video_h: int,
               style_name: str = "retention", emoji: bool | None = None) -> str:
-    """Return ASS subtitle text. ``words`` should already be clip-relative if
-    they came from a tightened EDL; otherwise clip_start is subtracted."""
+    """Return ASS subtitle text. ``words`` should already be clip-relative."""
     st = STYLES.get(style_name, STYLES["retention"])
     use_emoji = st["emoji"] if emoji is None else emoji
     size = max(28, int(video_h * st["size_frac"]))
     margin_v = int(video_h * st["margin_frac"])
+    # For the opaque-box style the OutlineColour is the box fill.
+    outline_col = st["box_color"] if st["border_style"] == 3 else st["outline"]
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -133,10 +158,10 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,{st['font']},{size},&H00{st['primary']},&H00{st['highlight']},&H00{st['outline']},&H80000000,-1,0,0,0,100,100,0,0,1,{st['outline_w']},{st['shadow']},2,40,40,{margin_v},1
+Style: Cap,{st['font']},{size},&H00{st['primary']},&H00{st['highlight']},&H00{outline_col},&H80000000,-1,0,0,0,100,100,0,0,{st['border_style']},{st['outline_w']},{st['shadow']},2,60,60,{margin_v},1
 """
 
-    pop_tag = (r"{\fscx82\fscy82\t(0,110,\fscx100\fscy100)}"
+    pop_tag = (r"{\fscx80\fscy80\t(0,110,\fscx100\fscy100)}"
                if st["pop"] else "")
 
     lines = []
@@ -152,7 +177,7 @@ Style: Cap,{st['font']},{size},&H00{st['primary']},&H00{st['highlight']},&H00{st
                 text = text.upper()
             bare = w.text.lower().strip(".,!?;:\"'")
             if use_emoji and bare in HIGH_ENERGY:
-                text += " \U0001F525"  # fire
+                text += " \U0001F525"
             col = word_color(bare, st)
             if col:
                 parts.append(rf"{{\kf{k_cs}\1c&H{col}&}}{text}"
