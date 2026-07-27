@@ -44,12 +44,13 @@ POWER_WORDS = MONEY_WORDS | DANGER_WORDS | HIGH_ENERGY | {
 }
 
 STYLES = {
+    # Clean, modern, high-retention: 2 words at a time, active word highlighted.
     "retention": {
-        "font": "Arial Black", "size_frac": 0.052, "margin_frac": 0.30,
+        "font": "Arial Black", "size_frac": 0.050, "margin_frac": 0.34,
         "primary": "FFFFFF", "highlight": "00E9FF", "accent": "00E9FF",
-        "outline": "000000", "outline_w": 5, "shadow": 2,
-        "uppercase": True, "max_words": 3, "max_dur": 1.5, "pop": True,
-        "emoji": True,
+        "outline": "000000", "outline_w": 4, "shadow": 1,
+        "uppercase": True, "max_words": 2, "max_dur": 1.2, "pop": True,
+        "emoji": False,
     },
     "clean-white": {
         "font": "Arial", "size_frac": 0.040, "margin_frac": 0.26,

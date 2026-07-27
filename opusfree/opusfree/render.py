@@ -1,11 +1,15 @@
-"""Render clips with ffmpeg: tight-cut assembly + reframe + multicam zoom +
-kinetic captions + dialogue enhancement (+ optional sfx / music ducking).
+"""Render clips with ffmpeg — two-pass for rock-solid captions.
 
-The whole edit happens in one filter_complex:
-  trim+concat kept spans (dead-air/filler removed) -> reframe (single crop or
-  two-speaker split) -> simulated multicam zoom pulses centered on the eyes ->
-  burn captions ;  audio: concat -> compress+loudnorm -> (optional) whoosh /
-  ducked music mix.
+Pass 1 (filter_complex): trim/concat kept spans (dead-air/filler removed) ->
+reframe (single crop / two-speaker split / blurred-fill) -> subtle cinematic
+push -> dialogue-enhanced audio (+ optional music ducking). No subtitles here.
+
+Pass 2 (simple -vf): burn the ASS captions onto the pass-1 video. Isolating
+the subtitles step this way is the form proven to work across ffmpeg 6/7/8,
+so captions always render.
+
+No cartoon SFX, no springy zoom pulses — those read as amateur. Motion is a
+slow push; audio stays clean.
 
 Requires ffmpeg + ffprobe on PATH.
 """
@@ -42,7 +46,6 @@ def probe_dimensions(video_path: str) -> tuple[int, int]:
 
 
 def extract_thumbnail(video_path: str, t: float, out_path: str) -> bool:
-    """Grab a single high-quality JPG frame at source time ``t``."""
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-ss", f"{t:.3f}", "-i", video_path,
@@ -53,28 +56,7 @@ def extract_thumbnail(video_path: str, t: float, out_path: str) -> bool:
         return False
 
 
-def _zoom_expr(zoom_times: List[float], strength: float = 0.12) -> str:
-    """Multicam punch: 100% wide baseline, ~112% pulses at each emphasis time."""
-    pulses = "+".join(
-        f"exp(-(on/{FPS}-{t:.2f})*(on/{FPS}-{t:.2f})/0.16)" for t in zoom_times)
-    return f"1+{strength}*({pulses})"
-
-
-def _make_whoosh(path: str, duration: float = 0.7) -> bool:
-    expr = "0.22*sin(2*PI*(180+1500*t*t)*t)*sin(PI*t/0.7)"
-    try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-f", "lavfi",
-             "-i", f"aevalsrc={expr}:d={duration}:s=44100",
-             "-c:a", "pcm_s16le", path],
-            check=True, capture_output=True, text=True)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
 def _concat_chain(spans_rel: List[Tuple[float, float]]) -> Tuple[str, str, str]:
-    """Trim+concat kept spans -> ([vc],[ac]) labels. Returns (chain, v, a)."""
     if len(spans_rel) <= 1:
         s, e = spans_rel[0] if spans_rel else (0.0, 0.0)
         chain = (f"[0:v]trim={s:.3f}:{e:.3f},setpts=PTS-STARTPTS[vc];"
@@ -92,7 +74,6 @@ def _concat_chain(spans_rel: List[Tuple[float, float]]) -> Tuple[str, str, str]:
 
 def _reframe_chain(vin: str, crop_spec: dict, out_w: int, out_h: int) -> str:
     if crop_spec["mode"] == "blur":
-        # Full frame fit onto a blurred, dimmed fill of itself -- no blank walls.
         return (
             f"{vin}split=2[bg][fg];"
             f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
@@ -117,102 +98,87 @@ def _reframe_chain(vin: str, crop_spec: dict, out_w: int, out_h: int) -> str:
             f"crop={out_w}:{out_h}[reframed]")
 
 
+def _push_filter(duration: float, out_w: int, out_h: int,
+                 amount: float = 0.06) -> str:
+    """A subtle, slow cinematic push-in over the whole clip (Ken Burns).
+
+    Not a springy pulse -- a gentle zoom from 1.0 to ~1.06, centered.
+    """
+    inc = amount / max(duration * FPS, 1)
+    z = f"min(1+{inc:.6f}*on,{1 + amount:.3f})"
+    return (f",zoompan=z='{z}':d=1:s={out_w}x{out_h}:fps={FPS}"
+            f":x='iw/2-(iw/zoom/2)':y='ih*0.5-(ih/zoom*0.5)'")
+
+
 def render_clip(video_path: str, out_path: str, clip_start: float,
                 clip_end: float, crop_spec: dict, ass_text: str,
                 out_w: int = 1080, out_h: int = 1920,
                 spans: Optional[List[Tuple[float, float]]] = None,
-                zoom_times: Optional[List[float]] = None, sfx: bool = False,
-                enhance_audio: bool = True,
-                music_path: Optional[str] = None) -> None:
-    """Render one finished clip. ``spans`` are source-absolute keep spans from
-    the EDL (defaults to the whole clip). ``zoom_times`` are OUTPUT-timeline."""
+                push: bool = True, enhance_audio: bool = True,
+                music_path: Optional[str] = None,
+                # accepted for back-compat; sfx is intentionally ignored now
+                zoom_times: Optional[List[float]] = None,
+                sfx: bool = False) -> None:
+    """Render one finished clip (two-pass; captions always burned in)."""
     duration = max(clip_end - clip_start, 0.1)
     spans = spans or [(clip_start, clip_end)]
     spans_rel = [(max(0.0, s - clip_start), max(0.0, e - clip_start))
                  for s, e in spans]
+    out_dur = sum(e - s for s, e in spans_rel) or duration
 
     tmp_dir = tempfile.mkdtemp(prefix="opusfree_")
     ass_name = "captions.ass"
     with open(os.path.join(tmp_dir, ass_name), "w", encoding="utf-8") as fh:
         fh.write(ass_text)
+    stage1 = os.path.join(tmp_dir, "stage1.mp4")
 
     video_abs = os.path.abspath(video_path)
     out_abs = os.path.abspath(out_path)
 
-    whoosh_path = os.path.join(tmp_dir, "whoosh.wav")
-    use_sfx = bool(sfx and zoom_times) and _make_whoosh(whoosh_path)
-
+    # ---- PASS 1: assemble + reframe + push + audio (no subtitles) ----
     concat, vc, ac = _concat_chain(spans_rel)
     reframe = _reframe_chain(vc, crop_spec, out_w, out_h)
+    vtail = f"[reframed]fps={FPS}"
+    if push:
+        vtail += _push_filter(out_dur, out_w, out_h)
+    vtail += "[vout]"
+    atail = f"{ac}{DIALOGUE_ENHANCE if enhance_audio else 'anull'}[a0]"
 
-    def build(with_captions: bool) -> list[str]:
-        vtail = f"[reframed]fps={FPS}"
-        if zoom_times:
-            z = _zoom_expr(zoom_times)
-            vtail += (f",zoompan=z={z}"
-                      f":x=(iw-iw/zoom)/2:y=(ih-ih/zoom)*0.42"
-                      f":d=1:s={out_w}x{out_h}:fps={FPS}")
-        if with_captions:
-            vtail += f",subtitles=filename={ass_name}"
-        vtail += "[vout]"
+    inputs = ["-ss", f"{clip_start:.3f}", "-i", video_abs, "-t", f"{duration:.3f}"]
+    amap = "[a0]"
+    if music_path and os.path.exists(music_path):
+        inputs += ["-i", os.path.abspath(music_path)]
+        atail += (f";[1:a]aloop=loop=-1:size=2e9,atrim=0:{out_dur:.3f},"
+                  f"asetpts=PTS-STARTPTS,volume=0.30[music];"
+                  f"[music][a0]sidechaincompress=threshold=0.03:ratio=8:"
+                  f"attack=5:release=250[duck];[a0][duck]"
+                  f"amix=inputs=2:duration=first:normalize=0[aout]")
+        amap = "[aout]"
 
-        # audio: enhance dialogue, then optional sfx / music ducking.
-        # A pad label must be followed directly by a filter (no comma).
-        atail = f"{ac}{DIALOGUE_ENHANCE if enhance_audio else 'anull'}[a0]"
+    fc1 = concat + ";" + reframe + ";" + vtail + ";" + atail
+    cmd1 = (["ffmpeg", "-y"] + inputs + ["-filter_complex", fc1,
+            "-map", "[vout]", "-map", amap,
+            "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+            "-c:a", "aac", "-b:a", "160k", stage1])
 
-        inputs = ["-ss", f"{clip_start:.3f}", "-i", video_abs,
-                  "-t", f"{duration:.3f}"]
-        extra_audio = []
-        mix_labels = ["[a0]"]
-        idx = 1
-
-        if music_path and os.path.exists(music_path):
-            inputs += ["-i", os.path.abspath(music_path)]
-            # loop/trim music to length, duck under dialogue via sidechain
-            extra_audio.append(
-                f"[{idx}:a]aloop=loop=-1:size=2e9,atrim=0:{duration:.3f},"
-                f"asetpts=PTS-STARTPTS,volume=0.35[music]")
-            extra_audio.append(
-                "[music][a0]sidechaincompress=threshold=0.03:ratio=6:"
-                "attack=5:release=250[ducked]")
-            mix_labels = ["[a0]", "[ducked]"]
-            idx += 1
-
-        if use_sfx:
-            for k, t in enumerate(zoom_times or []):
-                ms = max(0, int((t - 0.35) * 1000))
-                inputs += ["-i", whoosh_path]
-                extra_audio.append(
-                    f"[{idx}:a]adelay={ms}|{ms},volume=0.5[w{k}]")
-                mix_labels.append(f"[w{k}]")
-                idx += 1
-
-        fc = concat + ";" + reframe + ";" + vtail + ";" + atail
-        if len(mix_labels) > 1:
-            fc += ";" + ";".join(extra_audio)
-            fc += (f";{''.join(mix_labels)}amix=inputs={len(mix_labels)}"
-                   f":duration=first:normalize=0[aout]")
-            amap = "[aout]"
-        else:
-            amap = "[a0]"
-
-        return (["ffmpeg", "-y"] + inputs +
-                ["-filter_complex", fc, "-map", "[vout]", "-map", amap,
-                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                 "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
-                 out_abs])
+    # ---- PASS 2: burn captions with the simple, ffmpeg-8-proven form ----
+    cmd2 = (["ffmpeg", "-y", "-i", stage1,
+             "-vf", f"subtitles=filename={ass_name}",
+             "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+             "-c:a", "copy", "-movflags", "+faststart", out_abs])
 
     try:
+        subprocess.run(cmd1, check=True, capture_output=True, text=True,
+                       cwd=tmp_dir)
         try:
-            subprocess.run(build(True), check=True, capture_output=True,
-                           text=True, cwd=tmp_dir)
+            subprocess.run(cmd2, check=True, capture_output=True, text=True,
+                           cwd=tmp_dir)
         except subprocess.CalledProcessError as cap_exc:
             last = (cap_exc.stderr.strip().splitlines()[-1]
                     if cap_exc.stderr else str(cap_exc))
-            print(f"  [render] caption burn-in failed ({last}); "
-                  "rendering without captions.")
-            subprocess.run(build(False), check=True, capture_output=True,
-                           text=True, cwd=tmp_dir)
+            print(f"  [render] caption burn failed ({last}); "
+                  "delivering clip without captions.")
+            shutil.copyfile(stage1, out_abs)
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffmpeg failed:\n{exc.stderr[-1800:]}") from exc
     finally:

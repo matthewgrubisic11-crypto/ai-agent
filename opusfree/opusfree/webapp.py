@@ -140,7 +140,7 @@ class Handler(BaseHTTPRequestHandler):
             "llm": "ollama" if g("llm", "") == "on" else None,
             "meta": g("meta", "on") == "on",
             "zooms": g("zooms", "on") == "on",
-            "sfx": g("sfx", "on") == "on",
+            "sfx": False,
             "split": g("split", "on") == "on",
             "tighten": g("tighten", "on") == "on",
             "enhance": g("enhance", "on") == "on",
@@ -212,11 +212,9 @@ small.note{color:#6b7488}
   <div class="row" style="margin-top:14px">
    <label style="margin:0"><input type="checkbox" id="meta" checked style="width:auto"> AI titles + hashtags</label>
    <label style="margin:0"><input type="checkbox" id="tighten" checked style="width:auto"> Surgical cut (remove filler + dead air)</label>
-   <label style="margin:0"><input type="checkbox" id="zooms" checked style="width:auto"> Multicam punch zooms</label>
-   <label style="margin:0"><input type="checkbox" id="sfx" checked style="width:auto"> Anticipation sound</label>
+   <label style="margin:0"><input type="checkbox" id="zooms" checked style="width:auto"> Subtle motion (slow push)</label>
    <label style="margin:0"><input type="checkbox" id="split" checked style="width:auto"> Auto split-screen</label>
    <label style="margin:0"><input type="checkbox" id="enhance" checked style="width:auto"> Enhance dialogue audio</label>
-   <label style="margin:0"><input type="checkbox" id="llm" style="width:auto"> Use local LLM (Ollama)</label>
   </div>
   <button id="go" disabled>Generate clips</button>
   <small class="note">First run downloads the Whisper model once. Big videos take a few minutes on CPU.</small>
@@ -247,7 +245,6 @@ $('#go').onclick=async()=>{
   fd.append('ratios',$('#ratios').value);
   fd.append('meta',$('#meta').checked?'on':'off');
   fd.append('zooms',$('#zooms').checked?'on':'off');
-  fd.append('sfx',$('#sfx').checked?'on':'off');
   fd.append('split',$('#split').checked?'on':'off');
   fd.append('tighten',$('#tighten').checked?'on':'off');
   fd.append('enhance',$('#enhance').checked?'on':'off');
@@ -275,7 +272,7 @@ function render(clips){
     const tags=(c.hashtags||[]).join(' ');
     const why=(c.score_breakdown||[]).map(b=>`<span class="chip">${escapeHtml(b)}</span>`).join(' ');
     const framing=Object.values(c.framing||{}).includes('split')?'<span class="chip" style="color:#8affc1">split-screen</span>':'';
-    const zooms=(c.zoom_moments&&c.zoom_moments.length)?`<span class="chip">${c.zoom_moments.length} punch zoom${c.zoom_moments.length>1?'s':''}</span>`:'';
+    const zooms=(c.motion&&c.motion!=='none')?`<span class="chip">${escapeHtml(c.motion)}</span>`:'';
     const trimmed=c.trimmed_seconds?`<span class="chip">−${c.trimmed_seconds}s dead air</span>`:'';
     const kit=c.growth_kit||{};
     const titles=(kit.on_screen_titles||[]).map(t=>`<div class="muted">• ${escapeHtml(t)}</div>`).join('');

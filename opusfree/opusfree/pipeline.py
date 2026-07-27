@@ -79,7 +79,7 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
             model_size: str = "base", language: str | None = None,
             caption_style: str = "retention", use_llm: str | None = None,
             prompt: str | None = None, ratios: List[str] | None = None,
-            gen_meta: bool = True, zooms: bool = True, sfx: bool = True,
+            gen_meta: bool = True, zooms: bool = True, sfx: bool = False,
             split_screen: bool = True, tighten: bool = True,
             enhance_audio: bool = True, music_path: str | None = None,
             on_progress: ProgressFn = None) -> List[dict]:
@@ -151,17 +151,11 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
         plan = build_plan(clip.words, clip.start, tighten=tighten)
         tight_words = plan.words                       # output-timeline words
         out_dur = (tight_words[-1].end if tight_words else clip.duration)
-        # jump-cut points in the OUTPUT timeline (span boundaries)
+        # jump-cut points in the OUTPUT timeline (span boundaries) -> directives
         cut_points, acc = [], 0.0
         for (s, e) in plan.spans[:-1]:
             acc += (e - s)
             cut_points.append(round(acc, 2))
-        z_times = emphasis_times(tight_words, out_dur) if zooms else []
-        # ensure every jump cut is masked by a zoom (spec constraint)
-        for cp in cut_points:
-            if all(abs(cp - z) > 0.4 for z in z_times):
-                z_times.append(cp)
-        z_times = sorted(z_times)[:8]
 
         thumb_src = audiomod.peak_time(alog, clip.start, clip.end)
         thumb_name = f"{i:02d}_thumb.jpg"
@@ -185,8 +179,8 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
             render_clip(video_path, os.path.join(out_dir, name),
                         clip.start, clip.end, spec, ass,
                         out_w=out_w, out_h=out_h, spans=plan.spans,
-                        zoom_times=z_times, sfx=sfx,
-                        enhance_audio=enhance_audio, music_path=music_path)
+                        push=zooms, enhance_audio=enhance_audio,
+                        music_path=music_path)
             files[ratio] = name
             framing[ratio] = spec["mode"]
 
@@ -214,7 +208,7 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
             "thumbnail": thumb_name,
             "files": files,
             "framing": framing,
-            "zoom_moments": z_times,
+            "motion": "slow push" if zooms else "none",
         }
         if gen_meta:
             record["hashtags"] = meta.get("hashtags", [])

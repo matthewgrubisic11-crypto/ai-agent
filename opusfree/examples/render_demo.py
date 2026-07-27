@@ -92,7 +92,7 @@ def main():
         ass = build_ass(plan.words, 0.0, ow, oh, "retention")
         name = f"{i:02d}_score{clip.score}_9x16.mp4"
         render_clip(video, os.path.join(out_dir, name), clip.start, clip.end,
-                    spec, ass, ow, oh, spans=plan.spans, zoom_times=z, sfx=True,
+                    spec, ass, ow, oh, spans=plan.spans, push=True,
                     enhance_audio=True)
         manifest.append({
             "clip_id": f"{i:03d}", "viral_score": clip.viral_score,
