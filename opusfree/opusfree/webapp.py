@@ -271,6 +271,11 @@ details.more pre{white-space:pre-wrap;color:#c8d2f0;font-size:12.5px;margin:8px 
 .dls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 a.dl{color:var(--txt);font-size:12px;font-weight:600;text-decoration:none;background:var(--panel);border:1px solid var(--line);padding:6px 11px;border-radius:8px;transition:.14s}
 a.dl:hover{border-color:var(--accent);color:#fff}
+.rhead button.dl{background:var(--panel);border:1px solid var(--line)}
+.foot{text-align:center;color:var(--dim);font-size:12px;margin-top:26px;letter-spacing:.02em}
+.aihelp{margin-top:10px;font-size:12.5px;color:var(--muted);background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:12px 14px;line-height:1.6}
+.aihelp code{background:var(--bg);padding:2px 6px;border-radius:6px;color:#c8d2f0;font-size:12px}
 .hidden{display:none}
 @media(max-width:560px){.clip{flex-direction:column}.clip video{width:100%;max-width:200px}}
 </style></head><body>
@@ -284,6 +289,7 @@ a.dl:hover{border-color:var(--accent);color:#fff}
  </div>
 
  <div class="card" id="setup">
+  __AIHELP__
   <div class="drop" id="drop">
    <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4"/><path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/></svg></div>
    <b>Drop a video here</b><div class="sub">or click to choose a file</div>
@@ -332,9 +338,12 @@ a.dl:hover{border-color:var(--accent);color:#fff}
  </div>
 
  <div class="hidden" id="results">
-  <div class="rhead"><h2>Your clips</h2><span id="rcount"></span></div>
+  <div class="rhead"><h2>Your clips</h2><span id="rcount"></span>
+   <button id="dlall" class="dl" style="margin-left:auto;cursor:pointer">Download all</button></div>
   <div id="clips"></div>
  </div>
+
+ <div class="foot">100% local &middot; nothing is uploaded &middot; free forever</div>
 </main>
 <script>
 const $=s=>document.querySelector(s);
@@ -364,13 +373,18 @@ $('#go').onclick=async()=>{
 };
 async function poll(){
   const r=await fetch('/status/'+job); const s=await r.json();
-  $('#pbar').style.width=s.pct+'%'; $('#pmsg').textContent=s.message; $('#pstage').textContent=s.stage||'';
+  $('#pbar').style.width=s.pct+'%'; $('#pmsg').textContent=s.message;
+  $('#pstage').textContent=(s.stage?s.stage+' · ':'')+s.pct+'%';
   if(s.status==='running'){setTimeout(poll,1200);return}
   $('#go').disabled=false;$('#go').textContent='Generate clips';
   if(s.status==='error'){$('#pmsg').textContent='Error: '+s.message;const sp=$('.spin');if(sp)sp.style.display='none';return}
   $('#progress').classList.add('hidden');
   render(s.clips);
 }
+$('#dlall').onclick=()=>{
+  const links=[...document.querySelectorAll('#clips a.dl')];
+  links.forEach((a,i)=>setTimeout(()=>{const t=document.createElement('a');t.href=a.href;t.download='';document.body.appendChild(t);t.click();t.remove()},i*400));
+};
 function render(clips){
   $('#results').classList.remove('hidden');
   $('#rcount').textContent=clips.length?clips.length+' clips, best first':'';
@@ -439,13 +453,22 @@ def run(host: str = "127.0.0.1", port: int = 8500) -> None:
     if prov:
         ai = (f'<span class="pill on"><span class="dot"></span>'
               f'AI brain ON &middot; {prov}</span>')
+        aihelp = ""
     else:
         ai = ('<span class="pill off"><span class="dot"></span>'
-              'AI brain OFF &middot; add a key in .env for smarter picks</span>')
+              'AI brain OFF</span>')
+        aihelp = (
+            '<div class="aihelp">'
+            '<b style="color:#eef0f6">Turn on the AI brain for far better clip '
+            'picks (free).</b><br>'
+            'Local, no account: run <code>bash ai-setup.sh</code> once, then reload.'
+            '<br>Or paste a free key into <code>opusfree/.env</code> '
+            '(Gemini / Groq), then reload.</div>')
     global PAGE
     PAGE = (PAGE.replace("__STYLES__", options)
                 .replace("__TOGGLES__", toggles)
-                .replace("__AISTATUS__", ai))
+                .replace("__AISTATUS__", ai)
+                .replace("__AIHELP__", aihelp))
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"opusfree web UI running at http://{host}:{port}  (Ctrl+C to stop)")
     try:
