@@ -47,6 +47,7 @@ def _run_job(job_id: str, video_path: str, opts: dict) -> None:
             tighten=opts.get("tighten", True), enhance_audio=opts.get("enhance", True),
             clean_audio=opts.get("clean_audio", False),
             translate=opts.get("translate", False),
+            cta=opts.get("cta") or None,
             music_path=opts.get("music_path"),
             hook_titles=opts.get("hook_titles", True),
             progress_bar=opts.get("progress_bar", True),
@@ -168,6 +169,7 @@ class Handler(BaseHTTPRequestHandler):
             "broll": g("broll", "on") == "on",
             "translate": g("translate", "") == "on",
             "clean_audio": g("clean", "") == "on",
+            "cta": g("cta", "Follow for more").strip(),
             "music_path": music_path,
             "prompt": g("prompt", "").strip(),
             "ratios": [r for r in g("ratios", "9:16").split(",") if r],
@@ -248,6 +250,8 @@ small.note{color:#6b7488}
    <label style="margin:0"><input type="checkbox" id="bar" checked style="width:auto"> Progress bar</label>
    <label style="margin:0"><input type="checkbox" id="broll" checked style="width:auto"> B-roll (needs Pexels key)</label>
   </div>
+  <label>End call-to-action (drives follows/shares — clear to disable)</label>
+  <input id="cta" value="Follow for more">
   <label>Background music (optional — ducks under speech, syncs to beat)</label>
   <input type="file" id="music" accept="audio/*">
   <button id="go" disabled>Generate clips</button>
@@ -281,6 +285,7 @@ $('#go').onclick=async()=>{
   ['count','min_dur','max_dur','model','style','prompt'].forEach(k=>fd.append(k,$('#'+k).value));
   fd.append('translate',$('#translate').checked?'on':'off');
   fd.append('clean',$('#clean').checked?'on':'off');
+  fd.append('cta',$('#cta').value);
   fd.append('ratios',$('#ratios').value);
   fd.append('meta',$('#meta').checked?'on':'off');
   fd.append('zooms',$('#zooms').checked?'on':'off');

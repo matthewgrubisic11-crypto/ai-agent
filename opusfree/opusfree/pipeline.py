@@ -92,7 +92,8 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
             enhance_audio: bool = True, clean_audio: bool = False,
             translate: bool = False, music_path: str | None = None,
             hook_titles: bool = True, progress_bar: bool = True,
-            broll: bool = True, on_progress: ProgressFn = None) -> List[dict]:
+            broll: bool = True, cta: str | None = "Follow for more",
+            on_progress: ProgressFn = None) -> List[dict]:
     """Run the whole pipeline; write clips + spec-format manifest to out_dir."""
     from . import broll as brollmod
     from . import ingest
@@ -220,7 +221,7 @@ def process(video_path: str, out_dir: str, *, count: int = 10,
                                      allow_split=split_screen and value < 1,
                                      spans=plan.spans)
             ass = build_ass(tight_words, 0.0, out_w, out_h, caption_style,
-                            hook_title=hook)
+                            hook_title=hook, cta=cta or None)
             name = (f"{i:02d}_score{clip.score}_{_slug(clip.title, f'clip{i}')}"
                     f"_{ratio_tag(ratio)}.mp4")
             render_clip(video_path, os.path.join(out_dir, name),

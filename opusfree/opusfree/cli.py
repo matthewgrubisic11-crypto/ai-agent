@@ -59,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="translate captions to English (any language)")
     parser.add_argument("--music", default=None,
                         help="path to a music file to duck under dialogue")
+    parser.add_argument("--cta", default="Follow for more",
+                        help="end-card call-to-action text ('' to disable)")
     args = parser.parse_args(argv)
 
     ratios = [r.strip() for r in args.ratios.split(",") if r.strip()]
@@ -73,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             split_screen=not args.no_split, tighten=not args.no_tighten,
             enhance_audio=not args.no_enhance, clean_audio=args.clean_audio,
             translate=args.translate, music_path=args.music,
+            cta=args.cta or None,
         )
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -45,6 +45,33 @@ EMOTION_WORDS = {
     "win", "lose", "won", "lost", "failure", "success", "dream", "dreams",
 }
 
+# Research (Berger & Milkman): HIGH-arousal emotion drives sharing; low-arousal
+# (sadness/calm) suppresses it. Score by arousal, not just positive/negative.
+AROUSAL_HIGH = {
+    # awe
+    "incredible", "unbelievable", "insane", "mind-blowing", "amazing", "stunning",
+    "genius", "legendary", "unreal", "wild", "epic", "phenomenal",
+    # anger / outrage
+    "outrageous", "furious", "disgusting", "ridiculous", "scam", "lie", "lied",
+    "corrupt", "betrayed", "unfair", "rigged", "exposed", "worst",
+    # anxiety / fear
+    "terrifying", "scared", "dangerous", "warning", "risk", "threat", "crisis",
+    "shocking", "nightmare", "panic", "desperate", "afraid",
+    # amusement
+    "hilarious", "funny", "laugh", "crazy", "ridiculous", "absurd", "savage",
+}
+AROUSAL_LOW = {  # deactivating -> suppresses sharing
+    "sad", "boring", "tired", "calm", "peaceful", "fine", "okay", "content",
+    "relaxed", "sleepy", "dull", "meh", "whatever", "eventually",
+}
+# Social currency: sharing it makes the SHARER look smart/in-the-know.
+SOCIAL_CURRENCY = (
+    "most people don't", "nobody talks about", "nobody tells you",
+    "you won't believe", "secret", "hidden", "insider", "the truth about",
+    "what they don't", "little known", "the real reason", "trick", "hack",
+    "before it's too late", "you're doing it wrong", "stop doing",
+)
+
 # Story / payoff cues: phrases that signal a narrative arc or an insight
 # being delivered -- the moments interviews are watched for.
 STORY_CUES = (
@@ -183,6 +210,31 @@ def _score(clip: Clip) -> None:
         if emo_hits >= 2:
             reasons.append("emotional language")
 
+    # -- Arousal (Berger & Milkman: HIGH arousal drives shares) --------------
+    high_ar = sum(1 for t in tokens if t in AROUSAL_HIGH)
+    low_ar = sum(1 for t in tokens if t in AROUSAL_LOW)
+    if high_ar:
+        add(min(high_ar, 5) * 3.0, f"high-arousal x{min(high_ar, 5)}",
+            "high-arousal emotion (awe/anger/anxiety/amusement)")
+    if low_ar:
+        add(-min(low_ar, 4) * 3.0, f"low-arousal x{min(low_ar, 4)}")
+
+    # -- Shareability / social currency (makes the sharer look in-the-know) ---
+    share_hits = sum(1 for c in SOCIAL_CURRENCY if c in text_lower)
+    if share_hits:
+        add(min(share_hits, 3) * 5.0, f"social currency x{min(share_hits, 3)}",
+            "shareable (status/insider value)")
+
+    # -- 0-3s hook (research: first-3-seconds is THE retention signal) --------
+    first3_tok = [w.text.lower().strip(".,!?;:\"'")
+                  for w in clip.words if w.start - clip.start <= 3.0]
+    hook3 = (any(t in HOOK_WORDS or t in AROUSAL_HIGH for t in first3_tok)
+             or "?" in " ".join(first3_tok))
+    if hook3:
+        add(14, "strong 0-3s hook", "hook lands in first 3s")
+    else:
+        add(-8, "weak 0-3s hook")
+
     story_hits = sum(1 for cue in STORY_CUES if cue in text_lower)
     if story_hits:
         add(min(story_hits, 3) * 6.0, f"story/payoff cues x{min(story_hits, 3)}",
@@ -227,7 +279,12 @@ def _score(clip: Clip) -> None:
     arc = (4 if has_hook else 0) + (4 if has_payoff else 0) + (
         2 if 20 <= d <= 60 else 0)
 
-    clip.subscores = {"consensus_breaking": consensus,
+    arousal = min(10, 2 + 2 * high_ar - 2 * low_ar)
+    shareability = min(10, 2 + 3 * share_hits + (2 if hook3 else 0))
+    clip.subscores = {"hook_0_3s": 10 if hook3 else 3,
+                      "arousal": max(0, arousal),
+                      "shareability": max(0, shareability),
+                      "consensus_breaking": consensus,
                       "emotional_vulnerability": vulner,
                       "high_utility": utility, "narrative_arc": arc}
     clip.has_payoff = has_payoff

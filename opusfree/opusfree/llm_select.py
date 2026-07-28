@@ -25,14 +25,20 @@ from typing import List, Optional
 from .models import Clip, Transcript, Word
 
 VIRALITY_CRITERIA = [
-    "HOOK: a shocking, contrarian, or high-stakes opening line",
-    "EMOTIONAL PEAK: raw vulnerability, passion, anger, awe, or laughter",
-    "OPINION BOMB: a strong, divisive, or contrarian take",
-    "REVELATION: a surprising fact, secret, or 'nobody tells you' moment",
+    "HOOK (0-3s): the opening line must grab in the first 3 seconds — this is "
+    "the #1 retention signal. Reject clips that build slowly.",
+    "HIGH-AROUSAL EMOTION: awe, anger, anxiety, or amusement drive shares. "
+    "Low-arousal feelings (sadness, calm, boredom) SUPPRESS sharing — avoid.",
+    "SHAREABILITY / SOCIAL CURRENCY: would someone DM this to a friend because "
+    "sending it makes THEM look smart, funny, or in-the-know? (DM sends are the "
+    "top ranking signal on Reels.)",
+    "OPINION BOMB / REVELATION: a contrarian take or 'nobody tells you' secret",
     "CONFLICT: tension, disagreement, or a hard truth",
     "QUOTABLE: a punchy, screenshot-able one-liner",
     "STORY PEAK: the turning point or climax of a personal story",
     "PRACTICAL VALUE: immediately actionable, specific advice",
+    "WATCH-TO-END: a clear payoff or a loop back to the opening — no unresolved "
+    "clips (viewers feel cheated and drop off).",
 ]
 
 SYSTEM_PROMPT = """You are an elite short-form video producer who has studied \

@@ -155,7 +155,8 @@ def _wrap_title(text: str, per_line: int = 22) -> str:
 
 def build_ass(words: List[Word], clip_start: float, video_w: int, video_h: int,
               style_name: str = "retention", emoji: bool | None = None,
-              hook_title: str | None = None, hook_secs: float = 2.6) -> str:
+              hook_title: str | None = None, hook_secs: float = 2.6,
+              cta: str | None = None, cta_secs: float = 2.2) -> str:
     """Return ASS subtitle text. ``words`` should already be clip-relative.
 
     If ``hook_title`` is given, a bold title card is shown at the top for the
@@ -212,6 +213,16 @@ Style: Hook,Arial Black,{title_size},&H00FFFFFF,&H00FFFFFF,&H00101010,&H90000000
         fade = r"{\fad(150,200)}"
         lines.insert(0, f"Dialogue: 1,{_fmt_ts(0)},{_fmt_ts(hook_secs)},"
                         f"Hook,,0,0,0,,{fade}{title}")
+
+    if cta and words:
+        clip_end = words[-1].end - clip_start
+        c0 = max(0.0, clip_end - cta_secs)
+        text = _wrap_title(cta.strip().upper())
+        # centered card with a pop + fade to draw the eye for the follow/share
+        styled = (r"{\an5\fad(150,150)\fscx70\fscy70\t(0,160,\fscx100\fscy100)}"
+                  + text)
+        lines.append(f"Dialogue: 2,{_fmt_ts(c0)},{_fmt_ts(clip_end)},"
+                     f"Hook,,0,0,0,,{styled}")
 
     return (header + "\n[Events]\n"
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
