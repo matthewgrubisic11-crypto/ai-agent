@@ -138,7 +138,7 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
                 out_w: int = 1080, out_h: int = 1920,
                 spans: Optional[List[Tuple[float, float]]] = None,
                 push: bool = True, enhance_audio: bool = True,
-                clean_audio: bool = False,
+                clean_audio: bool = False, grade: bool = True,
                 music_path: Optional[str] = None,
                 progress_bar: bool = True,
                 broll: Optional[List[Tuple[float, float, str]]] = None,
@@ -172,6 +172,12 @@ def render_clip(video_path: str, out_path: str, clip_start: float,
     concat, vc, ac = _concat_chain(spans_rel)
     reframe = _reframe_chain(vc, crop_spec, out_w, out_h)
     vtail = f"[reframed]fps={FPS}"
+    if grade:
+        # Subtle "pop": gentle contrast+saturation, and an unsharp mask to
+        # counter softness from upscaling a small/zoomed face. Kept light so it
+        # never looks over-processed.
+        vtail += (",eq=contrast=1.06:saturation=1.12:brightness=0.005,"
+                  "unsharp=5:5:0.55:5:5:0.0")
     if push:
         vtail += _push_filter(out_dur, out_w, out_h)
     vtail += "[vout]"

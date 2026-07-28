@@ -60,8 +60,8 @@ def _style(**over):
 
 
 STYLES = {
-    # clean modern default
-    "retention": _style(),
+    # clean modern default (sits in the lower third, clear of the face)
+    "retention": _style(margin_frac=0.27),
     # one word at a time, big
     "word-pop": _style(max_words=1, size_frac=0.060, highlight="00E9FF"),
     # Hormozi green, all caps, punchy
