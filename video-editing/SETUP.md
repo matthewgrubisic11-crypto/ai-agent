@@ -26,12 +26,23 @@ Open Claude Code in the `ai-agent` folder (the repository root), so it loads the
 
 ## 3. Install the editing tools
 
-**Mac** (install Homebrew first from https://brew.sh):
+**Mac**, in the Terminal app:
 
-```bash
-brew install ffmpeg node python yt-dlp
-pip3 install openai-whisper
-```
+1. Install Homebrew (skip if `brew --version` already works). When it finishes, run the two "Next steps" lines it prints.
+
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+2. Install the tools. Whisper goes through `pipx`, because Homebrew's Python refuses a plain `pip3 install` with an "externally-managed-environment" error.
+
+   ```bash
+   brew install ffmpeg node yt-dlp pipx git
+   pipx ensurepath
+   pipx install openai-whisper
+   ```
+
+3. Close and reopen Terminal so the new commands are found.
 
 **Windows** (in PowerShell):
 
