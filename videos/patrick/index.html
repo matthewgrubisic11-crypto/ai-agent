@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="assets/gsap.min.js"></script>
+    <style>
+      :root {
+        --ink: #14213d;
+        --paper: #f7f5f0;
+        --red: #d7262e;
+        --yellow: #f5c518;
+        --cobalt: #1f4fa3;
+        --sky: #bfd9ee;
+        --concrete: #e4dfd6;
+        --font-display: "Archivo Black", sans-serif;
+        --font-body: "Inter", sans-serif;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--yellow);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        font-family: var(--font-body);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="21"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div id="s1-stamp" class="clip" data-composition-id="s1-stamp" data-composition-src="compositions/s1-stamp.html"
+        data-start="0" data-duration="3" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div id="s2-ticket" class="clip" data-composition-id="s2-ticket" data-composition-src="compositions/s2-ticket.html"
+        data-start="3" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div id="s3-shanghai" class="clip" data-composition-id="s3-shanghai" data-composition-src="compositions/s3-shanghai.html"
+        data-start="7" data-duration="3.6" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div id="s4-shelf" class="clip" data-composition-id="s4-shelf" data-composition-src="compositions/s4-shelf.html"
+        data-start="10.6" data-duration="4" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div id="s5-number" class="clip" data-composition-id="s5-number" data-composition-src="compositions/s5-number.html"
+        data-start="14.6" data-duration="3.6" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+      <div id="s6-end" class="clip" data-composition-id="s6-end" data-composition-src="compositions/s6-end.html"
+        data-start="18.2" data-duration="2.8" data-track-index="1" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>

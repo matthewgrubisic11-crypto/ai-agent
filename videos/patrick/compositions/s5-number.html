@@ -1,0 +1,103 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #f7f5f0;
+      overflow: hidden;
+      font-family: "Inter", sans-serif;
+    }
+    #s5-amount {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 300px;
+      text-align: center;
+      font-family: "Archivo Black", sans-serif;
+      font-size: 300px;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: #d7262e;
+    }
+    .s5-wheel {
+      display: inline-flex;
+      align-items: baseline;
+      font-variant-numeric: tabular-nums;
+    }
+    .s5-digit {
+      display: inline-block;
+      height: 1em;
+      overflow: hidden;
+    }
+    .s5-strip {
+      display: grid;
+    }
+    .s5-strip span {
+      height: 1em;
+      line-height: 1em;
+    }
+    #s5-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 680px;
+      text-align: center;
+      font-family: "Archivo Black", sans-serif;
+      font-size: 92px;
+      color: #14213d;
+      white-space: nowrap;
+    }
+    #s5-line span {
+      display: inline-block;
+      opacity: 0;
+    }
+    #s5-flood {
+      position: absolute;
+      inset: 0;
+      background: #f5c518;
+      clip-path: inset(0 100% 0 0);
+    }
+  </style>
+  <div id="root" data-composition-id="s5-number" data-width="1920" data-height="1080">
+    <div id="s5-amount"><span id="s5-wheel" class="s5-wheel" data-value="$500,000">$500,000</span></div>
+    <div id="s5-line"><span>Already</span> <span>invested</span></div>
+    <div id="s5-flood"></div>
+  </div>
+  <script>
+    (function () {
+      // Build the rolling digit columns (adapted from the registry's number-wheel)
+      const el = document.getElementById("s5-wheel");
+      const value = el.dataset.value;
+      el.textContent = "";
+      for (const ch of value) {
+        if (!/\d/.test(ch)) {
+          el.append(document.createTextNode(ch));
+          continue;
+        }
+        const stops = 20 + Number(ch);
+        const frame = document.createElement("span");
+        frame.className = "s5-digit";
+        const strip = document.createElement("span");
+        strip.className = "s5-strip";
+        strip.dataset.stops = String(stops);
+        for (let i = 0; i <= stops; i++) {
+          const s = document.createElement("span");
+          s.textContent = String(i % 10);
+          strip.appendChild(s);
+        }
+        frame.appendChild(strip);
+        el.appendChild(frame);
+      }
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#s5-amount", { scale: 1.08, filter: "blur(8px)" }, { scale: 1, filter: "blur(0px)", duration: 0.5, ease: "expo.out" }, 0);
+      tl.fromTo(".s5-strip", { y: "0em" },
+        { y: (i, s) => `-${s.dataset.stops}em`, duration: 1.5, ease: "power3.out", stagger: 0.06 }, 0.05);
+      tl.fromTo("#s5-line span", { opacity: 0, filter: "blur(6px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.13, ease: "power4.out", stagger: 0.067 }, 1.75);
+      // Blur out, yellow floods in from the left (home stage)
+      tl.to("#s5-amount, #s5-line", { opacity: 0, filter: "blur(10px)", duration: 0.2, ease: "power3.in" }, 3.15);
+      tl.fromTo("#s5-flood", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "power2.inOut" }, 3.2);
+      window.__timelines["s5-number"] = tl;
+    })();
+  </script>
+</template>

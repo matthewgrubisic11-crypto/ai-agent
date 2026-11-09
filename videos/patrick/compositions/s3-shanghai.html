@@ -1,0 +1,149 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #bfd9ee;
+      overflow: hidden;
+      font-family: "Inter", sans-serif;
+    }
+    #s3-city {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+    }
+    #s3-line {
+      position: absolute;
+      left: 140px;
+      top: 120px;
+      font-family: "Archivo Black", sans-serif;
+      font-size: 92px;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+      color: #14213d;
+      white-space: nowrap;
+    }
+    #s3-line span {
+      display: inline-block;
+      opacity: 0;
+    }
+    #s3-place {
+      position: absolute;
+      left: 146px;
+      top: 240px;
+      font-weight: 700;
+      font-size: 40px;
+      letter-spacing: 0.16em;
+      color: #14213d;
+      opacity: 0;
+    }
+    #s3-crate {
+      position: absolute;
+      left: 980px;
+      top: 0;
+      width: 800px;
+      height: 340px;
+    }
+    #s3-cable {
+      position: absolute;
+      left: 1377px;
+      top: -1100px;
+      width: 6px;
+      height: 1100px;
+      background: #14213d;
+    }
+  </style>
+  <div id="root" data-composition-id="s3-shanghai" data-width="1920" data-height="1080">
+    <svg id="s3-city" viewBox="0 0 1920 1080">
+      <g transform="translate(211 207) scale(0.78)">
+      <!-- back row of towers -->
+      <g id="s3-back" fill="#7d9cbc">
+        <rect x="120" y="640" width="120" height="300" />
+        <rect x="260" y="590" width="90" height="350" />
+        <rect x="380" y="680" width="140" height="260" />
+        <rect x="760" y="610" width="110" height="330" />
+        <rect x="880" y="660" width="90" height="280" />
+        <rect x="1620" y="600" width="120" height="340" />
+        <rect x="1760" y="680" width="130" height="260" />
+      </g>
+      <!-- Oriental Pearl Tower -->
+      <g id="s3-pearl" fill="#14213d">
+        <polygon points="560,940 585,700 600,700 590,940" />
+        <polygon points="690,940 665,700 650,700 660,940" />
+        <rect x="614" y="250" width="22" height="690" />
+        <circle cx="625" cy="680" r="78" />
+        <circle cx="625" cy="470" r="52" />
+        <circle cx="625" cy="330" r="20" />
+        <rect x="621" y="160" width="8" height="170" />
+      </g>
+      <!-- Jin Mao: stepped pagoda -->
+      <g id="s3-jinmao" fill="#14213d">
+        <polygon points="1040,940 1150,940 1140,560 1050,560" />
+        <polygon points="1052,560 1138,560 1130,440 1060,440" />
+        <polygon points="1062,440 1128,440 1121,360 1069,360" />
+        <polygon points="1071,360 1119,360 1113,300 1077,300" />
+        <polygon points="1079,300 1111,300 1102,250 1088,250" />
+        <rect x="1093" y="190" width="4" height="60" />
+      </g>
+      <!-- SWFC: tapered slab with the trapezoid opening -->
+      <g id="s3-swfc">
+        <polygon points="1200,940 1340,940 1320,210 1220,210" fill="#14213d" />
+        <polygon points="1236,250 1304,250 1296,300 1244,300" fill="#bfd9ee" />
+      </g>
+      <!-- Shanghai Tower: tallest, tapered with a twist line -->
+      <g id="s3-tower">
+        <path d="M 1400 940 C 1395 600, 1420 300, 1460 110 L 1500 120 C 1520 320, 1540 620, 1550 940 Z" fill="#14213d" />
+        <path d="M 1470 140 C 1480 400, 1440 700, 1430 940" stroke="#2f4470" stroke-width="6" fill="none" />
+      </g>
+      </g>
+      <!-- river -->
+      <rect id="s3-river" x="0" y="940" width="1920" height="140" fill="#14213d" />
+      <g id="s3-ripples" stroke="#bfd9ee" stroke-width="5" stroke-linecap="round" opacity="0.5">
+        <line x1="200" y1="990" x2="320" y2="990" />
+        <line x1="700" y1="1020" x2="860" y2="1020" />
+        <line x1="1300" y1="985" x2="1420" y2="985" />
+        <line x1="1600" y1="1030" x2="1760" y2="1030" />
+      </g>
+    </svg>
+    <div id="s3-line"><span>To</span> <span>start</span> <span>an</span> <span>import</span> <span>business</span></div>
+    <div id="s3-place">SHANGHAI, CHINA</div>
+    <div id="s3-cable"></div>
+    <svg id="s3-crate" viewBox="0 0 800 340">
+      <rect x="0" y="0" width="800" height="340" rx="10" fill="#1f4fa3" />
+      <g stroke="#173d80" stroke-width="10">
+        <line x1="60" y1="20" x2="60" y2="320" /><line x1="120" y1="20" x2="120" y2="320" />
+        <line x1="180" y1="20" x2="180" y2="320" /><line x1="240" y1="20" x2="240" y2="320" />
+        <line x1="560" y1="20" x2="560" y2="320" /><line x1="620" y1="20" x2="620" y2="320" />
+        <line x1="680" y1="20" x2="680" y2="320" /><line x1="740" y1="20" x2="740" y2="320" />
+      </g>
+      <rect x="0" y="0" width="800" height="22" fill="#173d80" />
+      <rect x="0" y="318" width="800" height="22" fill="#173d80" />
+      <text x="400" y="200" text-anchor="middle" font-family="Archivo Black" font-size="54" fill="#f7f5f0">SHANGHAI → SYDNEY</text>
+    </svg>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      // Skyline rises, building by building
+      const rise = [["#s3-back", 0], ["#s3-pearl", 0.08], ["#s3-jinmao", 0.16], ["#s3-swfc", 0.22], ["#s3-tower", 0.28]];
+      rise.forEach(([sel, at]) => {
+        tl.fromTo(sel, { y: 820 }, { y: 0, duration: 0.7, ease: "expo.out" }, at);
+      });
+      tl.fromTo("#s3-river, #s3-ripples", { y: 160 }, { y: 0, duration: 0.5, ease: "expo.out" }, 0);
+      // Line per word
+      tl.fromTo("#s3-line span", { opacity: 0, filter: "blur(6px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.13, ease: "power4.out", stagger: 0.067 }, 0.7);
+      tl.fromTo("#s3-place", { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "power2.out" }, 1.1);
+      // Container lowered on a crane cable in front of the skyline
+      tl.fromTo("#s3-crate", { y: -400 }, { y: 560, duration: 0.6, ease: "expo.out" }, 2.6);
+      tl.fromTo("#s3-cable", { y: -400 }, { y: 560, duration: 0.6, ease: "expo.out" }, 2.6);
+      tl.to("#s3-line span, #s3-place", { opacity: 0, filter: "blur(8px)", duration: 0.15, ease: "power3.in" }, 3.1);
+      // Whip out left
+      tl.to("#s3-crate, #s3-cable", { x: -1700, filter: "blur(16px)", duration: 0.3, ease: "power3.in" }, 3.3);
+      tl.to("#s3-city", { x: -260, filter: "blur(10px)", duration: 0.3, ease: "power3.in" }, 3.3);
+      window.__timelines["s3-shanghai"] = tl;
+    })();
+  </script>
+</template>
