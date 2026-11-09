@@ -1,0 +1,171 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #e4dfd6;
+      overflow: hidden;
+      font-family: "Inter", sans-serif;
+    }
+    #s4-line {
+      position: absolute;
+      left: 140px;
+      top: 110px;
+      font-family: "Archivo Black", sans-serif;
+      font-size: 92px;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+      color: #14213d;
+      white-space: nowrap;
+    }
+    #s4-line span {
+      display: inline-block;
+      opacity: 0;
+    }
+    #s4-box2 {
+      z-index: 5;
+    }
+    #s4-crate {
+      position: absolute;
+      left: 100px;
+      top: 380px;
+      width: 800px;
+      height: 340px;
+    }
+    #s4-door {
+      position: absolute;
+      left: 860px;
+      top: 380px;
+      width: 40px;
+      height: 340px;
+      background: #173d80;
+      border-radius: 0 10px 10px 0;
+    }
+    #s4-shelf {
+      position: absolute;
+      left: 980px;
+      top: 720px;
+      width: 860px;
+      height: 34px;
+      background: #a8784a;
+      box-shadow: 0 14px 0 rgba(20, 33, 61, 0.18);
+      border-radius: 4px;
+    }
+    .s4-bracket {
+      position: absolute;
+      top: 754px;
+      width: 24px;
+      height: 120px;
+      background: #14213d;
+    }
+    .s4-box {
+      position: absolute;
+      top: 460px;
+      width: 230px;
+      height: 260px;
+      background: #c8955e;
+      border-radius: 6px;
+      box-shadow: inset 0 -10px 0 rgba(0, 0, 0, 0.08);
+    }
+    .s4-box::before {
+      content: "";
+      position: absolute;
+      left: 98px;
+      top: 0;
+      width: 34px;
+      height: 260px;
+      background: #b48352;
+    }
+    .s4-tag {
+      position: absolute;
+      left: 140px;
+      top: 70px;
+      width: 120px;
+      height: 76px;
+      transform-origin: 0px 38px;
+    }
+    .s4-tag-card {
+      position: absolute;
+      inset: 0;
+      background: #f7f5f0;
+      border-radius: 6px 38px 38px 6px;
+      box-shadow: 0 6px 0 rgba(20, 33, 61, 0.2);
+    }
+    .s4-tag-text {
+      position: absolute;
+      left: 20px;
+      top: 18px;
+      font-family: "Archivo Black", sans-serif;
+      font-size: 32px;
+      color: #14213d;
+    }
+    .s4-tag-hole {
+      position: absolute;
+      right: 16px;
+      top: 30px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #c8955e;
+    }
+  </style>
+  <div id="root" data-composition-id="s4-shelf" data-width="1920" data-height="1080">
+    <div id="s4-line"><span>Sold</span> <span>at</span> <span>retail</span> <span>in</span> <span>Australia</span></div>
+    <div class="s4-bracket" style="left: 1060px"></div>
+    <div class="s4-bracket" style="left: 1740px"></div>
+    <div id="s4-shelf"></div>
+    <div id="s4-box1" class="s4-box" style="left: 1010px">
+      <div class="s4-tag" id="s4-tag1"><div class="s4-tag-card"></div><div class="s4-tag-text">RRP</div></div>
+    </div>
+    <div id="s4-box2" class="s4-box" style="left: 1295px">
+      <div class="s4-tag" id="s4-tag2"><div class="s4-tag-card" id="s4-tag2-card"></div><div class="s4-tag-text" id="s4-tag2-text">RRP</div></div>
+    </div>
+    <div id="s4-box3" class="s4-box" style="left: 1580px">
+      <div class="s4-tag" id="s4-tag3"><div class="s4-tag-card"></div><div class="s4-tag-text">RRP</div></div>
+    </div>
+    <svg id="s4-crate" viewBox="0 0 800 340">
+      <rect x="0" y="0" width="800" height="340" rx="10" fill="#1f4fa3" />
+      <g stroke="#173d80" stroke-width="10">
+        <line x1="60" y1="20" x2="60" y2="320" /><line x1="120" y1="20" x2="120" y2="320" />
+        <line x1="180" y1="20" x2="180" y2="320" /><line x1="240" y1="20" x2="240" y2="320" />
+        <line x1="560" y1="20" x2="560" y2="320" /><line x1="620" y1="20" x2="620" y2="320" />
+        <line x1="680" y1="20" x2="680" y2="320" /><line x1="740" y1="20" x2="740" y2="320" />
+      </g>
+      <rect x="0" y="0" width="800" height="22" fill="#173d80" />
+      <rect x="0" y="318" width="800" height="22" fill="#173d80" />
+      <text x="400" y="200" text-anchor="middle" font-family="Archivo Black" font-size="54" fill="#f7f5f0">SHANGHAI → SYDNEY</text>
+    </svg>
+    <div id="s4-door"></div>
+    <div id="s4-zoom" style="position: absolute; inset: 0; background: #f7f5f0; opacity: 0"></div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      // Container whips in from the right and lands sharp
+      tl.fromTo("#s4-crate, #s4-door", { x: 1500, filter: "blur(16px)" },
+        { x: 0, filter: "blur(0px)", duration: 0.45, ease: "expo.out" }, 0);
+      // Door swings open
+      tl.fromTo("#s4-door", { scaleX: 1, transformOrigin: "100% 50%" },
+        { scaleX: 0.12, duration: 0.3, ease: "power2.inOut" }, 0.55);
+      // Boxes slide out of the container onto the shelf, one after another
+      ["#s4-box1", "#s4-box2", "#s4-box3"].forEach((sel, i) => {
+        const from = 880 - (1010 + i * 285);
+        tl.fromTo(sel, { x: from - 200, opacity: 0 },
+          { x: 0, opacity: 1, duration: 0.55, ease: "expo.out" }, 0.75 + i * 0.16);
+      });
+      // Tags swing as each box stops
+      ["#s4-tag1", "#s4-tag2", "#s4-tag3"].forEach((sel, i) => {
+        tl.fromTo(sel, { rotation: 38 }, { rotation: 0, duration: 0.9, ease: "elastic.out(1, 0.45)" }, 1.0 + i * 0.16);
+      });
+      // Line per word
+      tl.fromTo("#s4-line span", { opacity: 0, filter: "blur(6px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.13, ease: "power4.out", stagger: 0.067 }, 1.3);
+      // Zoom through the middle tag: its paper fills the frame
+      tl.to("#s4-line span", { opacity: 0, filter: "blur(8px)", duration: 0.15, ease: "power3.in" }, 3.25);
+      tl.to("#s4-tag2-text", { opacity: 0, duration: 0.1 }, 3.4);
+      tl.to("#s4-box2", { scale: 32, duration: 0.5, ease: "power3.in", transformOrigin: "200px 108px" }, 3.4);
+      tl.to("#s4-zoom", { opacity: 1, duration: 0.2, ease: "power2.in" }, 3.75);
+      window.__timelines["s4-shelf"] = tl;
+    })();
+  </script>
+</template>

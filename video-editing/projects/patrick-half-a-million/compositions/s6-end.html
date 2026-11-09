@@ -1,0 +1,72 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #f5c518;
+      overflow: hidden;
+      font-family: "Inter", sans-serif;
+    }
+    #s6-name {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 290px;
+      text-align: center;
+      font-family: "Archivo Black", sans-serif;
+      font-size: 280px;
+      line-height: 1;
+      letter-spacing: 0.01em;
+      color: #14213d;
+      white-space: nowrap;
+    }
+    #s6-name span {
+      display: inline-block;
+      opacity: 0;
+    }
+    #s6-route {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 660px;
+      text-align: center;
+      font-family: "Archivo Black", sans-serif;
+      font-size: 84px;
+      color: #14213d;
+      white-space: nowrap;
+    }
+    #s6-route .s6-word {
+      display: inline-block;
+      opacity: 0;
+    }
+    #s6-arrow {
+      display: inline-block;
+      width: 150px;
+      height: 60px;
+      margin: 0 28px;
+      vertical-align: middle;
+    }
+  </style>
+  <div id="root" data-composition-id="s6-end" data-width="1920" data-height="1080">
+    <div id="s6-name"><span>P</span><span>A</span><span>T</span><span>R</span><span>I</span><span>C</span><span>K</span></div>
+    <div id="s6-route">
+      <span class="s6-word" id="s6-from">Sydney</span><svg id="s6-arrow" viewBox="0 0 150 60">
+        <path id="s6-arrow-path" d="M 6 30 L 130 30 M 104 8 L 136 30 L 104 52" fill="none" stroke="#d7262e"
+          stroke-width="12" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="230" stroke-dashoffset="230" />
+      </svg><span class="s6-word" id="s6-to">Shanghai</span>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const tl = gsap.timeline({ paused: true });
+      // Name per letter
+      tl.fromTo("#s6-name span", { opacity: 0, filter: "blur(6px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.16, ease: "power4.out", stagger: 0.08 }, 0.05);
+      // Route: Sydney, red arrow draws, Shanghai
+      tl.fromTo("#s6-from", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.15, ease: "power4.out" }, 0.75);
+      tl.fromTo("#s6-arrow-path", { strokeDashoffset: 230 }, { strokeDashoffset: 0, duration: 0.35, ease: "power2.inOut" }, 0.85);
+      tl.fromTo("#s6-to", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.15, ease: "power4.out" }, 1.15);
+      window.__timelines["s6-end"] = tl;
+    })();
+  </script>
+</template>
